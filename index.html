@@ -260,9 +260,31 @@ body>*:not(#printOverlay){display:none !important}
       <div style="display:flex;align-items:center;gap:6px;margin:8px 0 4px"><input type="checkbox" id="rememberMe" style="width:16px;height:16px;cursor:pointer"/><label for="rememberMe" style="font-size:12px;color:var(--g600);cursor:pointer">Ghi nhớ đăng nhập 記住帳號</label></div>
       <button class="enter-btn" onclick="doLogin()">Đăng nhập 登入</button>
       <div class="pw-err" id="pwErr" style="display:none;margin-top:8px">Sai tài khoản hoặc mật khẩu 帳號或密碼錯誤</div>
+      <div style="text-align:center;margin-top:14px"><a href="javascript:void(0)" onclick="showForgotPw()" style="font-size:12px;color:var(--p);text-decoration:none;font-weight:500;opacity:.7;transition:.2s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.7">Quên mật khẩu? 忘記密碼？</a></div>
+    </div>
+  </div>
+  <!-- FORGOT PW POPUP (inside roleGate so z-index works) -->
+  <div id="forgotPwModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:10000;align-items:center;justify-content:center;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)">
+    <div class="modal" style="max-width:420px;padding:24px 28px">
+      <h3 style="text-align:center;margin-bottom:16px">Quên mật khẩu 忘記密碼</h3>
+      <div style="text-align:center;margin-bottom:16px;font-size:36px">🔑</div>
+      <div style="background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.12);border-radius:10px;padding:16px;margin-bottom:16px">
+        <p style="font-size:13px;color:var(--g700);margin-bottom:10px;line-height:1.7"><b>Nếu bạn quên mật khẩu, vui lòng liên hệ:</b></p>
+        <p style="font-size:13px;color:var(--g700);margin-bottom:6px">1️⃣ <b>Quản lý</b> (có thể reset MK cho Nhân viên & KT Bộ phận)</p>
+        <p style="font-size:13px;color:var(--g700);margin-bottom:0">2️⃣ <b>Boss</b> (có thể reset MK cho tất cả tài khoản)</p>
+      </div>
+      <div style="background:rgba(217,119,6,.06);border:1px solid rgba(217,119,6,.12);border-radius:10px;padding:14px;margin-bottom:16px">
+        <p style="font-size:12px;color:#92400e;line-height:1.6"><b>如果您忘記密碼，請聯繫：</b></p>
+        <p style="font-size:12px;color:#92400e;margin-top:4px">1️⃣ <b>經理</b>（可為員工和部門會計重設密碼）</p>
+        <p style="font-size:12px;color:#92400e;margin-top:4px">2️⃣ <b>總經理</b>（可為所有帳號重設密碼）</p>
+      </div>
+      <p style="font-size:11px;color:var(--g400);text-align:center;margin-bottom:4px">Mật khẩu sẽ được reset về mặc định: <b>loho2026</b></p>
+      <p style="font-size:11px;color:var(--g400);text-align:center;margin-bottom:16px">密碼將重設為預設值：<b>loho2026</b></p>
+      <div style="text-align:center"><button class="btn btn-p" onclick="document.getElementById('forgotPwModal').style.display='none'" style="padding:10px 32px;font-size:14px">Đã hiểu 了解</button></div>
     </div>
   </div>
 </div>
+
 
 <!-- HEADER -->
 <div class="hdr" id="mainApp" style="display:none">
@@ -3139,6 +3161,7 @@ function renderUserMgmt(){
       <td style="font-size:11px">${staffName}</td>
       <td>
         ${canEdit?`<button class="btn btn-sm btn-o" onclick="openEditUser(${realIdx})">Sửa 編輯</button>`:''}
+        ${canEdit&&!isSelf?`<button class="btn btn-sm btn-w" onclick="resetUserPw(${realIdx})">🔑 Reset MK</button>`:''}
         ${canEdit&&!isSelf?`<button class="btn btn-sm btn-d" onclick="deleteUser(${realIdx})">Xoá 刪除</button>`:''}
         ${isSelf?'<span style="font-size:9px;color:var(--g400)">(bạn)</span>':''}
         ${!canEdit&&!isSelf?'<span style="font-size:9px;color:var(--g300)">—</span>':''}
@@ -3218,6 +3241,21 @@ function deleteUser(idx){
   USERS.splice(idx,1);
   localStorage.setItem('loho_users',JSON.stringify(USERS));
   renderUserMgmt();toast('Đã xoá');
+}
+
+function showForgotPw(){
+  document.getElementById('forgotPwModal').style.display='flex';
+}
+
+function resetUserPw(idx){
+  const u=USERS[idx];if(!u)return;
+  if(!canEditRole(u.role)){toast('Không có quyền reset mật khẩu tài khoản này');return;}
+  const defaultPw=u.role==='boss'?'boss2026':'loho2026';
+  if(!confirm('Reset mật khẩu tài khoản "'+u.username+'" về mặc định ('+defaultPw+')?\n重設帳號 "'+u.username+'" 的密碼為預設值？'))return;
+  USERS[idx].password=defaultPw;
+  if(currentUser&&currentUser.username===u.username)currentUser.password=defaultPw;
+  localStorage.setItem('loho_users',JSON.stringify(USERS));
+  renderUserMgmt();toast('Đã reset mật khẩu → '+defaultPw+' ✓');saveLog('reset-pw',u.username);
 }
 
 
