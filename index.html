@@ -932,11 +932,32 @@ function buildMonth(m,year){
   <!-- Manager: Tab bar for queue sections -->
   ${isManager()&&!isBoss()?`<div class="cd" style="border-left-color:var(--p);overflow:visible">
   <div style="display:flex;gap:0;border-bottom:2px solid var(--g200);background:var(--g50);border-radius:12px 12px 0 0;overflow-x:auto">
+    <button id="qtab_draft_${m}" onclick="switchQTab('${m}','draft')" style="flex:1;padding:10px 6px;border:none;background:transparent;cursor:pointer;font-size:10px;font-weight:700;color:var(--g500);border-bottom:3px solid transparent;transition:all .2s;white-space:nowrap">📝 Nháp 草稿 <span id="mgrDraftCnt_${m}" style="font-size:9px;font-weight:800;background:rgba(100,116,139,.15);color:#64748b;padding:1px 5px;border-radius:8px">0</span></button>
     <button id="qtab_pend_${m}" onclick="switchQTab('${m}','pend')" style="flex:1;padding:10px 6px;border:none;background:rgba(99,102,241,.15);cursor:pointer;font-size:10px;font-weight:700;color:var(--p);border-bottom:3px solid var(--p);transition:all .2s;white-space:nowrap">⏳ Chờ xử lý 待處理 <span id="pendCnt_${m}" style="font-size:9px;font-weight:800;background:var(--dl);color:var(--d);padding:1px 5px;border-radius:8px">0</span></button>
     <button id="qtab_send_${m}" onclick="switchQTab('${m}','send')" style="flex:1;padding:10px 6px;border:none;background:transparent;cursor:pointer;font-size:10px;font-weight:700;color:var(--g500);border-bottom:3px solid transparent;transition:all .2s;white-space:nowrap">📤 Gửi CT 提交公司 <span id="qSendCnt_${m}" style="font-size:9px;font-weight:800;background:var(--dl);color:var(--d);padding:1px 5px;border-radius:8px">0</span></button>
     <button id="qtab_boss_${m}" onclick="switchQTab('${m}','boss')" style="flex:1;padding:10px 6px;border:none;background:transparent;cursor:pointer;font-size:10px;font-weight:700;color:var(--g500);border-bottom:3px solid transparent;transition:all .2s;white-space:nowrap">👔 Chờ Boss 待老闆批 <span id="qBossCnt_${m}" style="font-size:9px;font-weight:800;background:var(--dl);color:var(--d);padding:1px 5px;border-radius:8px">0</span></button>
     <button id="qtab_pay_${m}" onclick="switchQTab('${m}','pay')" style="flex:1;padding:10px 6px;border:none;background:transparent;cursor:pointer;font-size:10px;font-weight:700;color:var(--g500);border-bottom:3px solid transparent;transition:all .2s;white-space:nowrap">💳 Chờ chi trả 待付款 <span id="qPayCnt_${m}" style="font-size:9px;font-weight:800;background:var(--dl);color:var(--d);padding:1px 5px;border-radius:8px">0</span></button>
     <button id="qtab_cash_${m}" onclick="switchQTab('${m}','cash')" style="flex:1;padding:10px 6px;border:none;background:transparent;cursor:pointer;font-size:10px;font-weight:700;color:var(--g500);border-bottom:3px solid transparent;transition:all .2s;white-space:nowrap">💰 Đợt TM 現金批次 <span id="mgrCashBatchCnt_${m}" style="font-size:9px;font-weight:800;background:var(--dl);color:var(--d);padding:1px 5px;border-radius:8px">0</span></button>
+  </div>
+
+  <!-- Tab: Nháp (Manager) -->
+  <div id="qpanel_draft_${m}" style="display:none">
+    <div class="batch-hdr" data-m="${m}" data-q="mgrDraft"><span class="sel-count"></span>${buildBatchBtns(m)}</div>
+    <div class="batch-title" data-m="${m}" data-q="mgrDraft" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;background:linear-gradient(135deg,rgba(100,116,139,.05),transparent)">
+      <h3 style="margin:0;font-size:12px;color:#64748b">Nháp 草稿 <span style="font-size:10px;font-weight:400">(chi phí do bạn tạo, chưa gửi duyệt)</span></h3>
+      <input type="text" id="qSearch_mgrDraft_${m}" oninput="renderM('${m}')" placeholder="Tìm mã đơn..." style="padding:4px 8px;border:1px solid var(--g300);border-radius:6px;font-size:10px;width:120px"/>
+    </div>
+    <div style="overflow-x:auto;max-height:50vh;overflow-y:auto;position:relative">
+      <table><thead><tr>
+        <th style="width:28px"><input type="checkbox" onchange="toggleAllMgrDraft('${m}',this.checked)"/></th>
+        <th>STT 序號</th><th>Mã số 編號</th><th>Ngày 日期</th><th>Loại 類型</th><th>Mô tả 說明</th>
+        <th style="text-align:right">Số tiền 金額</th><th>PT 方式</th><th>Người lập 經辦人</th><th style="width:30px;text-align:center" title="Đính kèm 附件">📎</th><th>Trạng thái 狀態</th><th style="width:100px"></th>
+      </tr></thead><tbody id="mgrDraftTb_${m}"></tbody></table>
+    </div>
+    <div id="mgrDraftTbEmpty_${m}" class="empty">Không có khoản nháp 沒有草稿</div>
+    <div style="padding:8px 16px;border-top:2px solid var(--g200);display:flex;justify-content:space-between;background:var(--g50);font-size:11px">
+      <span>Tổng: <b style="color:#64748b" id="mgrDraftTotal_${m}">0 đ</b></span><span id="mgrDraftFc_${m}">0 khoản</span>
+    </div>
   </div>
 
   <!-- Tab: Chờ xử lý -->
@@ -1297,7 +1318,7 @@ function toggleTrkDetail(detId,m){
 const _activeQTab={};
 function switchQTab(m,tab){
   _activeQTab[m]=tab;
-  const tabs=['pend','send','boss','pay','cash'];
+  const tabs=['draft','pend','send','boss','pay','cash'];
   tabs.forEach(t=>{
     const panel=document.getElementById('qpanel_'+t+'_'+m);
     const btn=document.getElementById('qtab_'+t+'_'+m);
@@ -1407,7 +1428,7 @@ function updateBatchHdr(m){
   });
   // Queue-specific batch-hdrs (Manager tabs + Accountant panel 1)
   const qFilters={pend:['pending'],send:['approved'],boss:['voucher'],pay:['boss_approved','cashier_review','cash_disbursed'],
-    acctDraft:['draft']};
+    acctDraft:['draft'],mgrDraft:['draft']};
   Object.keys(qFilters).forEach(q=>{
     const qSel=allSel.filter(e=>e._selCtx===q).length;
     document.querySelectorAll('.batch-hdr[data-m="'+m+'"][data-q="'+q+'"]').forEach(el=>{
@@ -2105,6 +2126,12 @@ function batchToggleHidden(m,hide){
   saveData();renderM(m);toast((hide?'Đã ẩn ':'Đã hiện ')+sel.length+' khoản');
 }
 // Toggle pending table checkboxes
+function toggleAllMgrDraft(m,checked){
+  const ym=getYear()+'-'+m;
+  clearOtherCtxSel(m,'mgrDraft');
+  items.filter(e=>e.date.startsWith(ym)&&e.status==='draft').forEach(e=>{e.selected=checked;if(checked)e._selCtx='mgrDraft';else delete e._selCtx;});
+  renderM(m);
+}
 function toggleAllPend(m,checked){
   const ym=getYear()+'-'+m;
   clearOtherCtxSel(m,'pend');
@@ -2264,7 +2291,7 @@ function renderM(m){
       '<td style="font-size:10px">'+(staff?staff.name:e.staffCode)+'</td>'+
       '<td style="text-align:center">'+(e.attachments&&e.attachments.length?'<span style="font-size:11px;cursor:pointer" title="'+e.attachments.length+' file đính kèm 附件" onclick="event.stopPropagation();previewAttachments('+e.id+')">📎<span style="font-size:8px;color:var(--p);font-weight:700">'+e.attachments.length+'</span></span>':'')+'</td>'+
       '<td><span class="st '+st.c+'" onclick="event.stopPropagation();openApproval('+e.id+')">'+st.l+'</span></td>'+
-      '<td><button class="bi" onclick="event.stopPropagation();openApproval('+e.id+')">👁</button></td></tr>';
+      '<td style="white-space:nowrap">'+(e.status==='draft'?'<button class="bi" title="Chỉnh sửa 編輯" onclick="event.stopPropagation();openEdit('+e.id+')">✏️</button><button class="bi" title="In phiếu chi 列印" onclick="event.stopPropagation();printItem('+e.id+')">🖨️</button>':'')+'<button class="bi" onclick="event.stopPropagation();openApproval('+e.id+')">👁</button></td></tr>';
   };
   const _readOnlyRowFn=function(e,i){
     const ds=fmtDate(e.date);
@@ -2335,6 +2362,10 @@ function renderM(m){
   }
 
   if(_isManagerOnly){
+    // Manager Tab 0: Nháp (draft) — chi phí do manager tạo, chưa gửi duyệt
+    const mgrDrafts=mI.filter(e=>e.status==='draft');
+    _fillQueueTable('mgrDraftTb','mgrDraftTbEmpty','mgrDraftCnt','mgrDraftTotal','mgrDraftFc',mgrDrafts,'mgrDraft');
+    const mgrDraftCntEl=document.getElementById('mgrDraftCnt_'+m);if(mgrDraftCntEl)mgrDraftCntEl.textContent=mgrDrafts.length||'0';
     // Manager Tab 1: Chờ xử lý (pending)
     _fillQueueTable('pendTb','pendTbEmpty','pendCnt','pendTotal','pendFc',mI.filter(e=>e.status==='pending'),'pend');
     // Manager Tab 2: Gửi về công ty (approved)
@@ -2481,7 +2512,7 @@ function renderM(m){
     if(isChiefAccountant()&&e.status!=='paid')return false;
     if(isCashier()&&!['cash_disbursed','paid'].includes(e.status))return false;
     if(isBoss()&&!['boss_approved','cashier_review','cash_disbursed','cash_confirmed','paid','rejected'].includes(e.status))return false;
-    if(_isManagerOnly&&['pending','approved','voucher','boss_approved','cashier_review','cash_disbursed'].includes(e.status))return false;
+    if(_isManagerOnly&&['draft','pending','approved','voucher','boss_approved','cashier_review','cash_disbursed'].includes(e.status))return false;
     if(isAccountant()&&e.status!=='paid'&&!(e.status==='draft'&&e.createdByAccountant))return false;
     if(isStaff()&&e.status!=='paid')return false;
     if(fltType&&e.type!==fltType)return false;
