@@ -2959,24 +2959,90 @@ function cleanTestData(){
   localStorage.setItem('loho_test_cleaned_v3','1');
 }
 
-// Sync lên Google Sheets (v2: gửi metadata cho SyncLog)
+// Merge 2 mảng items theo id: local wins nếu cùng id (vì user vừa sửa), thêm items từ remote chưa có trong local
+function mergeItems(localItems, remoteItems){
+  const localMap=new Map(localItems.map(e=>[e.id,e]));
+  // Thêm items từ remote mà local chưa có
+  remoteItems.forEach(re=>{
+    if(!localMap.has(re.id)){
+      localMap.set(re.id,re);
+    } else {
+      // Cùng id: so sánh savedAt/submittedDate/approvedDate/paidDate — dùng bản mới hơn
+      const le=localMap.get(re.id);
+      const localTime=le.paidDate||le.approvedDate||le.submittedDate||le.date||'';
+      const remoteTime=re.paidDate||re.approvedDate||re.submittedDate||re.date||'';
+      // Nếu remote có trạng thái "tiến xa hơn" trong workflow → dùng remote
+      const stOrder={draft:0,pending:1,approved:2,voucher:3,boss_approved:4,cashier_review:5,cash_disbursed:6,paid:7,rejected:1,recall_pending:1,returned:7,cash_confirmed:7};
+      const lOrd=stOrder[le.status]||0;
+      const rOrd=stOrder[re.status]||0;
+      if(rOrd>lOrd){
+        localMap.set(re.id,re); // Remote đã tiến xa hơn trong workflow
+      }
+    }
+  });
+  return Array.from(localMap.values());
+}
+
+// Merge advances
+function mergeAdvances(localAdv, remoteAdv){
+  const localMap=new Map(localAdv.map(a=>[a.id,a]));
+  remoteAdv.forEach(ra=>{if(!localMap.has(ra.id))localMap.set(ra.id,ra);});
+  return Array.from(localMap.values());
+}
+
+// Sync lên Google Sheets (v3: merge trước khi save — không ghi đè data người khác)
 async function syncToSheets(data){
   if(isSyncing||!GSHEET_API)return;
   isSyncing=true;
   try{
-    // Thêm metadata cho SyncLog
+    // Bước 1: Load data hiện tại từ Sheets
+    let remoteItems=[],remoteAdvances=[],remoteBudgets={},remoteNextId=1,remoteAdvNextId=1;
+    try{
+      const loadRes=await fetch(GSHEET_API+'?action=load');
+      const lr=await loadRes.json();
+      if(lr.ok){
+        remoteItems=lr.items||[];
+        remoteAdvances=lr.advances||[];
+        remoteBudgets=lr.budgets||{};
+        remoteNextId=lr.nextId||1;
+        remoteAdvNextId=lr.advNextId||1;
+      }
+    }catch(loadErr){console.log('Pre-sync load skipped:',loadErr.message);}
+
+    // Bước 2: Merge local + remote
+    const mergedItems=mergeItems(data.items||[], remoteItems);
+    const mergedAdvances=mergeAdvances(data.advances||[], remoteAdvances);
+    const mergedNextId=Math.max(data.nextId||1, remoteNextId, mergedItems.reduce((mx,e)=>Math.max(mx,e.id),0)+1);
+    const mergedAdvNextId=Math.max(data.advNextId||1, remoteAdvNextId, mergedAdvances.reduce((mx,a)=>Math.max(mx,a.id||0),0)+1);
+    // Merge budgets (local wins)
+    const mergedBudgets=Object.assign({},remoteBudgets,data.budgets||{});
+
+    // Bước 3: Cập nhật local data với merged result
+    items=mergedItems;
+    nextId=mergedNextId;
+    advances=mergedAdvances;
+    advNextId=mergedAdvNextId;
+    budgets=mergedBudgets;
+    // Lưu merged vào localStorage
+    const mergedJson=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
+    try{localStorage.setItem(LS_KEY,mergedJson);}catch(se){}
+
+    // Bước 4: Gửi merged data lên Sheets
+    const merged={items:mergedItems,budgets:mergedBudgets,nextId:mergedNextId,advances:mergedAdvances,advNextId:mergedAdvNextId,
+      cashBatches:data.cashBatches||[],cashBatchNextId:data.cashBatchNextId||1,savedAt:new Date().toISOString()};
     const syncUser=(typeof currentUser!=='undefined'&&currentUser)?currentUser.displayName||currentUser.username||currentRole:currentRole||'unknown';
-    data._syncUser=syncUser;
-    data._syncAction=_lastSyncAction||'auto-save';
-    data._syncDetail=_lastSyncDetail||'';
-    // Reset sau khi gửi
+    merged._syncUser=syncUser;
+    merged._syncAction=_lastSyncAction||'auto-save';
+    merged._syncDetail=_lastSyncDetail||'';
     _lastSyncAction='auto-save';_lastSyncDetail='';
-    const res=await fetch(GSHEET_API+'?action=save',{method:'POST',body:JSON.stringify(data),headers:{'Content-Type':'text/plain'}});
+    const res=await fetch(GSHEET_API+'?action=save',{method:'POST',body:JSON.stringify(merged),headers:{'Content-Type':'text/plain'}});
     const r=await res.json();
     if(r.ok){
-      console.log('Synced to Sheets:',r.savedAt,r.itemCount,'items');
+      console.log('Synced to Sheets (merged):',r.savedAt,r.itemCount,'items (local:'+data.items.length+' remote:'+remoteItems.length+' merged:'+mergedItems.length+')');
       const el=document.getElementById('syncStatus');
       if(el){el.textContent='☁️ Đã lưu '+new Date().toLocaleTimeString('vi-VN');el.style.color='#22c55e';}
+      // Rerender nếu có items mới từ remote
+      if(mergedItems.length>data.items.length)rerender();
     }else{
       console.error('Sheets sync error:',r.error);
       const el=document.getElementById('syncStatus');
@@ -2990,26 +3056,36 @@ async function syncToSheets(data){
   isSyncing=false;
 }
 
-// Load từ Google Sheets (khi mở trang)
+// Load từ Google Sheets (khi mở trang) — v3: merge thay vì replace
 async function loadFromSheets(){
   if(!GSHEET_API)return;
   try{
     const res=await fetch(GSHEET_API+'?action=load');
     const r=await res.json();
     if(r.ok&&r.items&&r.items.length>0){
-      // So sánh: dùng data nào mới hơn (Sheets vs localStorage)
-      const lsSaved=localStorage.getItem(LS_KEY);
-      const lsTime=lsSaved?JSON.parse(lsSaved).savedAt:'';
-      const sheetHasMore=r.items.length>items.length;
-      if(sheetHasMore||!lsTime){
-        items=r.items;budgets=r.budgets||{};nextId=r.nextId||1;advances=r.advances||[];advNextId=r.advNextId||1;
-        items.forEach(e=>{if(!('submitted'in e))e.submitted=false;if(!('submittedDate'in e))e.submittedDate='';if(!('remark'in e))e.remark='';});
-        // Lưu lại vào localStorage
-        const json=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
-        localStorage.setItem(LS_KEY,json);
-        console.log('Loaded from Sheets:',items.length,'items');
-        rerender();
-      }
+      const remoteItems=r.items||[];
+      const remoteAdvances=r.advances||[];
+      const remoteBudgets=r.budgets||{};
+      const remoteNextId=r.nextId||1;
+      const remoteAdvNextId=r.advNextId||1;
+
+      // Merge local + remote (không mất data bên nào)
+      const prevCount=items.length;
+      items=mergeItems(items, remoteItems);
+      advances=mergeAdvances(advances, remoteAdvances);
+      nextId=Math.max(nextId, remoteNextId, items.reduce((mx,e)=>Math.max(mx,e.id),0)+1);
+      advNextId=Math.max(advNextId, remoteAdvNextId, advances.reduce((mx,a)=>Math.max(mx,a.id||0),0)+1);
+      budgets=Object.assign({},remoteBudgets,budgets);
+
+      // Đảm bảo fields bắt buộc
+      items.forEach(e=>{if(!('submitted'in e))e.submitted=false;if(!('submittedDate'in e))e.submittedDate='';if(!('remark'in e))e.remark='';});
+
+      // Lưu merged vào localStorage
+      const json=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
+      try{localStorage.setItem(LS_KEY,json);}catch(se){}
+
+      console.log('Loaded from Sheets (merged): local='+prevCount+' remote='+remoteItems.length+' merged='+items.length);
+      rerender();
     }
     const el=document.getElementById('syncStatus');
     if(el){el.textContent='☁️ Online';el.style.color='#22c55e';}
