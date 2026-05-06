@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>支付費用明細表 - LOHO HOUSE v2.0</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--p:#6366f1;--pl:rgba(99,102,241,.08);--pd:#4f46e5;--s:#059669;--sl:rgba(5,150,105,.08);--w:#d97706;--wl:rgba(217,119,6,.08);--d:#dc2626;--dl:rgba(220,38,38,.08);--pp:#7c3aed;--ppl:rgba(124,58,237,.08);--pk:#db2777;--tl:#0d9488;--o:#ea580c;
+--g50:#f8fafc;--g100:#f1f5f9;--g200:#e2e8f0;--g300:#cbd5e1;--g400:#94a3b8;--g500:#64748b;--g600:#475569;--g700:#334155;--g800:#1e293b;--g900:#0f172a;--r:12px;--sh:0 1px 3px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.04);
+--glass:rgba(255,255,255,.7);--glass-border:rgba(255,255,255,.5);--glass-hover:rgba(255,255,255,.85);--surface:rgba(255,255,255,.6);--surface-solid:#ffffff}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideIn{from{opacity:0;transform:translateX(-16px)}to{opacity:1;transform:translateX(0)}}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+@keyframes glow{0%,100%{opacity:.4}50%{opacity:.7}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans TC',sans-serif;background:#f0f4f8;color:#1e293b;line-height:1.6;font-size:14px;min-height:100vh;background-image:radial-gradient(ellipse 80% 60% at 20% 10%,rgba(99,102,241,.06),transparent),radial-gradient(ellipse 60% 50% at 80% 90%,rgba(14,165,233,.04),transparent)}
+
+#roleGate{position:fixed;inset:0;background:#e8edf5;z-index:9999;display:flex;align-items:center;justify-content:center}
+#roleGate::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 70% 50% at 30% 30%,rgba(99,102,241,.1),transparent),radial-gradient(ellipse 50% 40% at 70% 70%,rgba(14,165,233,.08),transparent),radial-gradient(ellipse 40% 30% at 50% 50%,rgba(139,92,246,.06),transparent)}
+#roleGate.hide{display:none}
+.role-box{background:rgba(255,255,255,.75);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-radius:20px;padding:48px 52px;text-align:center;max-width:420px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.6);animation:fadeIn .6s ease-out;position:relative;z-index:1}
+.role-box h2{font-size:32px;margin-bottom:6px;background:linear-gradient(135deg,#6366f1,#0ea5e9);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;font-weight:800;letter-spacing:-1px}
+.role-box .sub{font-size:13px;color:#64748b;margin-bottom:28px;font-weight:400;letter-spacing:.5px}
+.role-btn{display:block;width:100%;padding:15px;border-radius:12px;font-size:15px;font-weight:500;cursor:pointer;margin-bottom:12px;border:1px solid rgba(0,0,0,.06);background:rgba(255,255,255,.5);color:#475569;transition:all .3s ease}
+.role-btn:hover{border-color:rgba(99,102,241,.3);background:rgba(99,102,241,.06);transform:translateY(-2px);box-shadow:0 8px 25px rgba(99,102,241,.1);color:#4338ca}
+.role-btn.active{border-color:rgba(99,102,241,.3);background:rgba(99,102,241,.08);font-weight:600;color:#4f46e5}
+.pw-row{margin-top:16px;display:none}
+.pw-row input{width:100%;padding:12px 16px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;text-align:center;margin-bottom:12px;transition:.3s;background:rgba(255,255,255,.7);color:#1e293b}
+.pw-row input:focus{border-color:rgba(99,102,241,.5);outline:none;box-shadow:0 0 0 3px rgba(99,102,241,.1);background:#fff}
+.pw-row .enter-btn{width:100%;padding:13px;border:none;border-radius:10px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:.3s;box-shadow:0 4px 16px rgba(99,102,241,.2)}
+.pw-row .enter-btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(99,102,241,.3)}
+.pw-err{color:#dc2626;font-size:12px;margin-top:8px;display:none;font-weight:500}
+
+.hdr{background:rgba(255,255,255,.88);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);color:#1e293b;padding:14px 28px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;box-shadow:0 1px 2px rgba(0,0,0,.04);position:relative;border-bottom:1px solid rgba(0,0,0,.06)}
+.hdr-logo{width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,#6366f1,#0ea5e9);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:13px;letter-spacing:-.5px;flex-shrink:0}
+.hdr-info{display:flex;align-items:center;gap:12px}
+.hdr-sep{width:1px;height:28px;background:#e2e8f0;flex-shrink:0}
+.hdr h1{font-size:16px;font-weight:600;letter-spacing:-.3px;color:#0f172a}.hdr .cn{font-size:11px;opacity:.4;font-weight:400;margin-left:6px}
+.hdr .sub{font-size:11px;color:#64748b;letter-spacing:.2px}
+.role-indicator{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:6px;font-size:10px;font-weight:600}
+.role-indicator.staff{background:rgba(100,116,139,.06);color:#475569;border:1px solid rgba(100,116,139,.1)}
+.role-indicator.manager{background:rgba(99,102,241,.06);color:#4f46e5;border:1px solid rgba(99,102,241,.12)}
+.role-indicator.boss{background:rgba(217,119,6,.08);color:#b45309;border:1px solid rgba(217,119,6,.15)}
+.role-indicator.chief_accountant{background:rgba(124,58,237,.06);color:#7c3aed;border:1px solid rgba(124,58,237,.1)}
+.role-indicator.cashier{background:rgba(5,150,105,.06);color:#059669;border:1px solid rgba(5,150,105,.1)}
+.role-indicator.accountant{background:rgba(14,165,233,.06);color:#0284c7;border:1px solid rgba(14,165,233,.1)}
+.ctrls{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.ctrls select{padding:5px 10px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;color:#475569;font-size:11px;font-weight:500;cursor:pointer;transition:.2s}
+.ctrls select:hover{border-color:#cbd5e1}
+.ctrls select option{color:#1e293b;background:#fff}
+.wrap{max-width:1320px;margin:0 auto;padding:16px 145px 16px 14px}
+
+.tabs{display:flex;gap:2px;background:#fff;border-radius:10px;overflow-x:auto;margin-bottom:18px;padding:3px;align-items:center;scrollbar-width:thin;border:1px solid #e2e8f0}
+.tab{flex:none;padding:8px 16px;font-size:12px;font-weight:400;cursor:pointer;border:1px solid transparent;color:#94a3b8;white-space:nowrap;transition:all .2s ease;border-radius:8px;background:transparent}
+.tab:hover{background:rgba(99,102,241,.03);color:#64748b}
+.tab.on{color:#4f46e5;background:rgba(99,102,241,.06);font-weight:500;border-color:rgba(99,102,241,.1)}
+.tab.disabled{opacity:.2;cursor:not-allowed;pointer-events:none}
+.pnl{display:none}.pnl.on{display:block;animation:fadeIn .3s ease-out}
+
+.cd{background:#fff;border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.03);margin-bottom:16px;overflow:hidden;transition:all .25s ease;border:1px solid #e2e8f0;border-left:3px solid rgba(99,102,241,.2)}
+.cd:hover{box-shadow:0 2px 8px rgba(0,0,0,.05);border-left-color:rgba(99,102,241,.45)}
+.cd-h{padding:14px 20px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.cd-h h2{font-size:13px;font-weight:500;color:#1e293b;letter-spacing:-.1px}.cd-h .cn{font-size:10px;color:#94a3b8;font-weight:400;margin-left:6px}
+.cd-b{padding:18px 20px}
+
+.bgt{background:rgba(255,255,255,.65);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:var(--r);padding:14px 20px;margin-bottom:14px;box-shadow:var(--sh);border:1px solid rgba(0,0,0,.04)}
+.bgt-top{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.bgt-top h3{font-size:13px;font-weight:600;color:#334155}
+.bgt-ed{display:flex;gap:5px;align-items:center}
+.bgt-ed input{width:140px;padding:5px 8px;border:1px solid #e2e8f0;border-radius:8px;font-size:11px;text-align:right;background:rgba(255,255,255,.7);color:#1e293b}
+.bbar{height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden}
+.bfill{height:100%;border-radius:3px;transition:width .6s cubic-bezier(.4,0,.2,1);font-size:0;min-width:4px}
+.bfill.ok{background:#059669}.bfill.wn{background:#d97706}.bfill.ov{background:#dc2626}
+.binfo{display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:#64748b}.binfo .neg{color:#dc2626;font-weight:700}
+
+.kgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:14px;margin-bottom:16px}
+.kpi{background:#fff;border-radius:10px;padding:16px 18px;border:1px solid #e2e8f0;border-left:3px solid rgba(99,102,241,.2);transition:all .25s ease;position:relative}
+.kpi:hover{border-left-color:rgba(99,102,241,.5);box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.kpi .kl{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;font-weight:500}
+.kpi .kv{font-size:20px;font-weight:500;font-variant-numeric:tabular-nums;margin:6px 0 2px;letter-spacing:-.5px;color:#0f172a}
+.kpi .ks{font-size:11px;color:#94a3b8;font-weight:400}
+
+.frow{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:12px}
+.fg{display:flex;flex-direction:column;gap:5px}
+.fg label{font-size:11px;font-weight:600;color:#64748b;letter-spacing:.3px}.fg .cn{color:#94a3b8;font-weight:400;font-size:10px}
+.fg input,.fg select,.fg textarea{padding:10px 13px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;transition:all .25s ease;background:rgba(255,255,255,.7);color:#1e293b}
+.fg input:focus,.fg select:focus,.fg textarea:focus{outline:none;border-color:rgba(99,102,241,.5);box-shadow:0 0 0 3px rgba(99,102,241,.08);background:#fff}
+.fg textarea{resize:vertical;min-height:48px}
+.fg input::placeholder,.fg textarea::placeholder{color:#94a3b8}
+.fg select option{background:#fff;color:#1e293b}
+
+.btn{padding:8px 16px;border:none;border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;transition:all .2s ease;display:inline-flex;align-items:center;gap:5px;letter-spacing:.1px}
+.btn-p{background:rgba(99,102,241,.08);color:#4f46e5;border:1px solid rgba(99,102,241,.15)}.btn-p:hover{background:rgba(99,102,241,.12);transform:translateY(-1px)}
+.btn-s{background:rgba(5,150,105,.06);color:#059669;border:1px solid rgba(5,150,105,.1)}.btn-s:hover{background:rgba(5,150,105,.1);transform:translateY(-1px)}
+.btn-o{background:#fff;color:#475569;border:1px solid #e2e8f0}.btn-o:hover{background:#f8fafc;border-color:#cbd5e1}
+.btn-d{background:rgba(220,38,38,.05);color:#dc2626;border:1px solid rgba(220,38,38,.1)}.btn-d:hover{background:rgba(220,38,38,.08)}
+.btn-w{background:rgba(217,119,6,.08);color:#b45309;border:1px solid rgba(217,119,6,.12)}.btn-w:hover{background:rgba(217,119,6,.12)}
+.btn-sm{padding:6px 12px;font-size:10px}
+
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px}
+thead{background:#f1f5f9;position:sticky;top:0;z-index:10}
+th{padding:10px 12px;text-align:left;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#64748b;border-bottom:2px solid #e2e8f0;white-space:nowrap;background:#f1f5f9}
+td{padding:9px 12px;border-bottom:1px solid #f1f5f9;vertical-align:top;color:#334155}
+tbody tr{transition:background .15s ease}
+tbody tr:nth-child(even){background:rgba(248,250,252,.5)}
+tbody tr:hover td{background:rgba(99,102,241,.04)}
+.amt{font-weight:600;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;color:#1e293b}
+
+.st{padding:4px 10px;border-radius:6px;font-size:10px;font-weight:600;white-space:nowrap;letter-spacing:.2px;display:inline-block;border:1px solid}
+.st-draft{background:rgba(100,116,139,.06);color:#64748b;border-color:rgba(100,116,139,.15)}
+.st-pending{background:rgba(217,119,6,.08);color:#b45309;border-color:rgba(217,119,6,.15)}
+.st-approved{background:rgba(14,165,233,.08);color:#0284c7;border-color:rgba(14,165,233,.15)}
+.st-voucher{background:rgba(124,58,237,.08);color:#7c3aed;border-color:rgba(124,58,237,.15)}
+.st-paid{background:rgba(5,150,105,.08);color:#059669;border-color:rgba(5,150,105,.15)}
+.st-rejected{background:rgba(220,38,38,.06);color:#dc2626;border-color:rgba(220,38,38,.12)}
+
+.bi{width:28px;height:28px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;justify-content:center;transition:.2s;color:#64748b}
+.bi:hover{background:rgba(99,102,241,.06);transform:scale(1.1)}
+.empty{text-align:center;padding:36px 16px;color:#94a3b8;font-size:13px}
+
+.cgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.ccd{background:rgba(255,255,255,.65);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:14px;box-shadow:var(--sh);padding:18px;border:1px solid rgba(0,0,0,.04)}
+.ccd h3{font-size:13px;font-weight:600;margin-bottom:10px;color:#334155}.ccd h3 .cn{font-size:10px;color:#94a3b8;font-weight:400}
+
+.ytbl{width:100%;border-collapse:collapse;font-size:11px}
+.ytbl th,.ytbl td{padding:6px 8px;border:1px solid #e2e8f0;text-align:right;color:#334155}
+.ytbl th{background:#f8fafc;text-align:center;font-size:10px;font-weight:600;color:#64748b}
+.ytbl td:first-child{text-align:left;font-weight:600}
+.ytbl tr:last-child{font-weight:700;background:rgba(99,102,241,.06)}
+
+.batch-hdr{display:none;background:#eef2ff;padding:8px 14px;align-items:center;gap:6px;flex-wrap:wrap;border-radius:12px 12px 0 0;border-bottom:2px solid #c7d2fe;position:sticky;top:0;z-index:20}
+.batch-hdr.active{display:flex}
+.batch-hdr .sel-count{font-size:12px;font-weight:700;color:#4f46e5;white-space:nowrap;padding-right:10px;border-right:2px solid #c7d2fe;margin-right:4px}
+.batch-hdr .btn{font-size:10px!important;padding:5px 10px!important;white-space:nowrap;border-radius:7px!important;min-height:28px}
+
+.tracker{background:rgba(255,255,255,.65);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:14px;box-shadow:var(--sh);margin-bottom:18px;overflow:hidden;border:1px solid rgba(0,0,0,.04);border-left:3px solid rgba(217,119,6,.3)}
+.tracker .cd-h{border-bottom:1px solid rgba(0,0,0,.04)}
+
+.flow{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:10px 0}
+.flow-step{padding:4px 10px;border-radius:6px;font-size:10px;font-weight:500;background:rgba(0,0,0,.03);color:#94a3b8;border:1px solid rgba(0,0,0,.04)}
+.flow-step.active{background:rgba(99,102,241,.08);color:#4f46e5;border-color:rgba(99,102,241,.15)}
+.flow-step.done{background:rgba(5,150,105,.06);color:#059669;border-color:rgba(5,150,105,.1)}
+.flow-step.fail{background:rgba(220,38,38,.06);color:#dc2626;border-color:rgba(220,38,38,.1)}
+.flow-arr{color:#cbd5e1;font-size:12px}
+
+.mbg{display:none;position:fixed;inset:0;background:rgba(15,23,42,.4);z-index:1000;align-items:center;justify-content:center;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.mbg.show{display:flex}
+.modal{background:#fff;border-radius:14px;padding:28px;width:94%;max-width:620px;max-height:90vh;overflow-y:auto;box-shadow:0 16px 48px rgba(0,0,0,.1);animation:fadeIn .3s ease-out;border:1px solid #e2e8f0;border-top:2px solid rgba(99,102,241,.25)}
+.modal h3{font-size:17px;font-weight:700;margin-bottom:18px;color:#0f172a}
+.modal .fg{margin-bottom:10px}
+.mact{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap}
+
+.toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;background:#fff;color:#1e293b;border-radius:10px;font-size:13px;z-index:2000;transform:translateY(120px);opacity:0;transition:.35s cubic-bezier(0.23,1,0.320,1);box-shadow:0 4px 16px rgba(0,0,0,.08);font-weight:500;border:1px solid #e2e8f0}
+.toast.show{transform:translateY(0);opacity:1}
+
+input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:#6366f1;border-radius:4px}
+
+.adv-info{background:rgba(5,150,105,.04);border:1px solid rgba(5,150,105,.1);border-radius:10px;padding:10px 14px;font-size:11px;margin:8px 0;color:#059669}
+
+.summary-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:12px}
+.summary-table th,.summary-table td{padding:6px 10px;border:1px solid #e2e8f0;text-align:right;color:#334155}
+.summary-table th{background:#f8fafc;text-align:left;font-weight:600;color:#64748b}
+.summary-table td:first-child{text-align:left}
+.summary-table tr:last-child{background:rgba(99,102,241,.06);font-weight:700}
+
+@media(max-width:768px){.frow{grid-template-columns:1fr}.cgrid{grid-template-columns:1fr}.kgrid{grid-template-columns:repeat(2,1fr)}.wrap{padding:10px 8px}.batch-hdr{padding:6px 8px;gap:3px}.batch-hdr .btn{font-size:9px!important;padding:4px 8px!important}.role-box{padding:32px 28px}.hdr{padding:14px 16px}}
+
+/* ===== PRINT TEMPLATE ===== */
+#printOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;overflow-y:auto;padding:20px;backdrop-filter:blur(3px)}
+#printOverlay.show{display:block}
+.print-toolbar{position:sticky;top:0;z-index:10001;background:#fff;padding:12px 24px;display:flex;align-items:center;gap:14px;border-bottom:2px solid var(--g200);box-shadow:0 4px 16px rgba(0,0,0,.12);border-radius:0 0 14px 14px;max-width:220mm;margin:0 auto;flex-wrap:wrap}
+.print-toolbar .p-badge{background:var(--pl);color:var(--p);padding:4px 12px;border-radius:10px;font-size:12px;font-weight:700}
+.pv-page{position:relative;background:#fff;width:210mm;height:148mm;margin:20px auto;box-shadow:0 4px 24px rgba(0,0,0,.2);page-break-after:always;overflow:hidden}
+.pv-page:last-child{page-break-after:auto}
+.pv-page img.pvbg{width:100%;height:100%;display:block}
+.pv-page .pf{position:absolute;font-family:'Times New Roman',serif;color:#000}
+.pv-page .dig-row{display:flex;gap:0}
+.pv-page .dig-row .dc{width:16.4px;min-width:16.4px;height:18px;text-align:center;font-family:'Times New Roman',serif;font-size:11px;font-weight:800;line-height:18px}
+.pv-page .dig-row .dc.x{color:#aaa;font-weight:400}
+.pv-page .pvline{position:absolute;border-left:1px solid #000;width:0;pointer-events:none}
+@media print{
+body>*:not(#printOverlay){display:none !important}
+#printOverlay{position:static;padding:0;display:block !important;background:#fff !important;backdrop-filter:none}
+.print-toolbar{display:none !important}
+.pv-page{margin:0;box-shadow:none;width:100%;height:100%;page-break-after:always;page-break-inside:avoid}
+.pv-page:last-child{page-break-after:auto}
+@page{size:210mm 148mm;margin:0}
+}
+
+/* ===== FILE PREVIEW ===== */
+#filePreviewOverlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.75);z-index:11000;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#filePreviewOverlay.show{display:flex;flex-direction:column}
+.fp-toolbar{background:#fff;padding:10px 20px;display:flex;align-items:center;gap:12px;border-bottom:2px solid var(--g200);box-shadow:0 4px 16px rgba(0,0,0,.12);flex-shrink:0}
+.fp-toolbar .fp-name{font-size:13px;font-weight:600;color:#1e293b;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fp-toolbar .btn{font-size:11px}
+.fp-body{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:20px}
+.fp-body img{max-width:95%;max-height:90vh;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.3)}
+.fp-body iframe{width:90%;height:90vh;border:none;border-radius:8px;background:#fff}
+.fp-body .fp-unsupported{background:#fff;padding:40px;border-radius:12px;text-align:center;font-size:14px;color:#64748b}
+.fp-nav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.9);border:none;width:44px;height:44px;border-radius:50%;font-size:20px;cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.15);display:flex;align-items:center;justify-content:center;color:#1e293b;z-index:11001}
+.fp-nav:hover{background:#fff;box-shadow:0 4px 20px rgba(0,0,0,.2)}
+.fp-nav.prev{left:16px}
+.fp-nav.next{right:16px}
+@media print{
+#filePreviewOverlay{position:static;display:block!important;background:#fff!important;backdrop-filter:none}
+.fp-toolbar{display:none!important}
+.fp-nav{display:none!important}
+.fp-body{padding:0}
+.fp-body img{max-width:100%;max-height:none;border-radius:0;box-shadow:none}
+}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(0,0,0,.1);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.18)}
+
+/* Print button */
+.btn-print{background:rgba(14,165,233,.08);color:#0284c7;font-size:10px;padding:6px 12px;border-radius:8px;border:1px solid rgba(14,165,233,.15);cursor:pointer;transition:.25s;font-weight:600}
+.btn-print:hover{background:rgba(14,165,233,.12);transform:translateY(-1px)}
+
+.st-boss{background:rgba(217,119,6,.08);color:#b45309;border-color:rgba(217,119,6,.15);font-weight:600}
+.st-recall{background:rgba(234,88,12,.08);color:#c2410c;border-color:rgba(234,88,12,.15);font-weight:600;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+.st-cashier{background:rgba(124,58,237,.06);color:#7c3aed;border-color:rgba(124,58,237,.12);font-weight:600}
+.st-cash-disbursed{background:rgba(5,150,105,.06);color:#059669;border-color:rgba(5,150,105,.12);font-weight:600}
+.st-cash-confirmed{background:rgba(22,163,74,.08);color:#15803d;border-color:rgba(22,163,74,.15);font-weight:600}
+.login-form{margin-top:20px}
+.login-form .fg{margin-bottom:14px;text-align:left}
+.login-form .fg label{font-size:13px;font-weight:500;color:#64748b;display:block;margin-bottom:4px}
+.login-form .fg input{width:100%;padding:11px 14px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;transition:.3s;background:rgba(255,255,255,.7);color:#1e293b}
+.login-form .fg input:focus{outline:none;border-color:rgba(99,102,241,.5);box-shadow:0 0 0 3px rgba(99,102,241,.1)}
+.login-form .fg input::placeholder{color:#94a3b8}
+.login-form .enter-btn{width:100%;padding:12px;border:none;border-radius:10px;background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:.3s;margin-top:6px;box-shadow:0 4px 16px rgba(99,102,241,.2)}
+.login-form .enter-btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(99,102,241,.3)}
+.user-mgmt-table{width:100%;border-collapse:collapse;font-size:12px}
+.user-mgmt-table th,.user-mgmt-table td{padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:left;color:#334155}
+.user-mgmt-table th{background:#f8fafc;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.3px;color:#64748b}
+.user-mgmt-table tr:hover td{background:rgba(99,102,241,.03)}
+.role-tag{padding:3px 8px;border-radius:6px;font-size:10px;font-weight:500;display:inline-block;border:1px solid}
+.role-tag.staff{background:rgba(100,116,139,.06);color:#64748b;border-color:rgba(100,116,139,.1)}
+.role-tag.accountant{background:rgba(14,165,233,.06);color:#0284c7;border-color:rgba(14,165,233,.1)}
+.role-tag.manager{background:rgba(5,150,105,.06);color:#059669;border-color:rgba(5,150,105,.1)}
+.role-tag.boss{background:rgba(217,119,6,.08);color:#b45309;border-color:rgba(217,119,6,.15)}
+.role-tag.chief_accountant{background:rgba(124,58,237,.06);color:#7c3aed;border-color:rgba(124,58,237,.1)}
+</style>
+</head>
+<body>
+
+<!-- LOGIN GATE -->
+<div id="roleGate">
+  <div class="role-box">
+    <h2>LOHO HOUSE</h2>
+    <div class="sub">Hệ thống quản lý chi phí 支付費用管理系統</div>
+    <div class="login-form">
+      <div class="fg"><label>Tài khoản 帳號</label><input type="text" id="loginUser" placeholder="Nhập tên đăng nhập..." autocomplete="username"/></div>
+      <div class="fg"><label>Mật khẩu 密碼</label><div style="position:relative"><input type="password" id="loginPass" placeholder="Nhập mật khẩu..." autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()" style="width:100%;padding-right:40px"/><button type="button" onclick="togglePwVis()" id="pwToggleBtn" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;color:var(--g400);padding:4px" title="Hiện/ẩn mật khẩu">👁</button></div></div>
+      <div style="display:flex;align-items:center;gap:6px;margin:8px 0 4px"><input type="checkbox" id="rememberMe" style="width:16px;height:16px;cursor:pointer"/><label for="rememberMe" style="font-size:12px;color:var(--g600);cursor:pointer">Ghi nhớ đăng nhập 記住帳號</label></div>
+      <button class="enter-btn" onclick="doLogin()">Đăng nhập 登入</button>
+      <div class="pw-err" id="pwErr" style="display:none;margin-top:8px">Sai tài khoản hoặc mật khẩu 帳號或密碼錯誤</div>
+      <div style="text-align:center;margin-top:14px"><a href="javascript:void(0)" onclick="showForgotPw()" style="font-size:12px;color:var(--p);text-decoration:none;font-weight:500;opacity:.7;transition:.2s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.7">Quên mật khẩu? 忘記密碼？</a></div>
+    </div>
+  </div>
+  <!-- FORGOT PW POPUP (inside roleGate so z-index works) -->
+  <div id="forgotPwModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:10000;align-items:center;justify-content:center;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)">
+    <div class="modal" style="max-width:420px;padding:24px 28px">
+      <h3 style="text-align:center;margin-bottom:16px">Quên mật khẩu 忘記密碼</h3>
+      <div style="text-align:center;margin-bottom:16px;font-size:36px">🔑</div>
+      <div style="background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.12);border-radius:10px;padding:16px;margin-bottom:16px">
+        <p style="font-size:13px;color:var(--g700);margin-bottom:10px;line-height:1.7"><b>Nếu bạn quên mật khẩu, vui lòng liên hệ:</b></p>
+        <p style="font-size:13px;color:var(--g700);margin-bottom:6px">1️⃣ <b>Quản lý</b> (có thể reset MK cho Nhân viên & KT Bộ phận)</p>
+        <p style="font-size:13px;color:var(--g700);margin-bottom:0">2️⃣ <b>Boss</b> (có thể reset MK cho tất cả tài khoản)</p>
+      </div>
+      <div style="background:rgba(217,119,6,.06);border:1px solid rgba(217,119,6,.12);border-radius:10px;padding:14px;margin-bottom:16px">
+        <p style="font-size:12px;color:#92400e;line-height:1.6"><b>如果您忘記密碼，請聯繫：</b></p>
+        <p style="font-size:12px;color:#92400e;margin-top:4px">1️⃣ <b>經理</b>（可為員工和部門會計重設密碼）</p>
+        <p style="font-size:12px;color:#92400e;margin-top:4px">2️⃣ <b>總經理</b>（可為所有帳號重設密碼）</p>
+      </div>
+      <p style="font-size:11px;color:var(--g400);text-align:center;margin-bottom:4px">Mật khẩu sẽ được reset về mặc định: <b>loho2026</b></p>
+      <p style="font-size:11px;color:var(--g400);text-align:center;margin-bottom:16px">密碼將重設為預設值：<b>loho2026</b></p>
+      <div style="text-align:center"><button class="btn btn-p" onclick="document.getElementById('forgotPwModal').style.display='none'" style="padding:10px 32px;font-size:14px">Đã hiểu 了解</button></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- HEADER -->
+<div class="hdr" id="mainApp" style="display:none">
+  <div class="hdr-info">
+    <div class="hdr-logo">LH</div>
+    <div>
+      <h1>Quản lý chi phí<span class="cn">支付費用管理系統</span></h1>
+      <div class="sub">Loho House · Lập Nguyên 立源 | <span class="role-indicator" id="roleLabel"></span> <span id="userNameDisplay" style="font-size:11px;color:#64748b;margin-left:4px"></span></div>
+    </div>
+    <div class="hdr-sep"></div>
+    <button class="btn btn-sm btn-o" onclick="openChangePw()">Đổi MK</button>
+    <button class="btn btn-sm btn-o" style="color:#4f46e5" onclick="doLogout()">Đăng xuất</button>
+  </div>
+  <div class="ctrls">
+    <label style="font-size:11px;color:#64748b">Năm:</label><select id="selYear"></select>
+    <button class="btn btn-o" onclick="exportCSV()">Xuất CSV</button>
+    <button class="btn btn-o" onclick="backupData()">Backup</button>
+    <button class="btn btn-o" onclick="restoreData()">Khôi phục</button>
+    <span id="syncStatus" style="font-size:10px;color:#94a3b8;margin-left:2px">Local</span>
+  </div>
+</div>
+
+<div class="wrap" id="mainWrap" style="display:none">
+  <div class="tabs" id="mainTabs"><div class="tab on" data-tab="overview" onclick="switchMain('overview')">Tổng quan 總覽</div></div>
+
+  <!-- OVERVIEW -->
+  <div class="pnl on" id="pnl-overview">
+    <div class="bgt" id="yearBudgetSection">
+      <div class="bgt-top"><h3>Ngân sách năm <span id="ovYear">2026</span></h3>
+        <div class="bgt-ed"><input type="text" id="yearBudgetIn" placeholder="NS/tháng" oninput="fmtIn(this)"/><button class="btn btn-sm btn-p" onclick="setYearBudget()">Áp dụng</button></div>
+      </div>
+      <div class="bbar"><div class="bfill ok" id="ovFill">0%</div></div>
+      <div class="binfo"><span>Tổng chi: <b id="ovSpent">0 đ</b></span><span>NS: <span id="ovBudget">--</span></span><span>Còn: <span id="ovRemain">--</span></span></div>
+    </div>
+    <div class="cd"><div class="cd-h"><h2>Bảng tổng hợp năm<span class="cn"> 年度彙總表</span></h2></div><div class="cd-b" style="overflow-x:auto;padding:10px"><table class="ytbl" id="yearTable"></table></div></div>
+    <div class="cgrid">
+      <div class="ccd"><h3>Xu hướng<span class="cn"> 趨勢</span></h3><canvas id="chTrend" height="200"></canvas></div>
+      <div class="ccd"><h3>Phân bổ<span class="cn"> 分佈</span></h3><canvas id="chPie" height="200"></canvas></div>
+      <div class="ccd" style="grid-column:1/-1"><h3>So sánh theo loại<span class="cn"> 比較</span></h3><canvas id="chStack" height="200"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- APPROVAL MODAL -->
+<div class="mbg" id="approveModal"><div class="modal" id="amBody"></div></div>
+
+<!-- EDIT MODAL -->
+<div class="mbg" id="editModal">
+  <div class="modal">
+    <h3>Sửa khoản chi 編輯</h3>
+    <input type="hidden" id="eId"/>
+    <div class="fg"><label>Ngày</label><input type="date" id="eDate"/></div>
+    <div class="fg"><label>Loại chi phí</label><select id="eType"></select></div>
+    <div class="fg"><label>Số tiền (VNĐ)</label><input type="text" id="eAmt" oninput="fmtIn(this)"/></div>
+    <div class="fg"><label>TT thanh toán</label><select id="ePaySt"><option value="Chưa chi">Chưa chi</option><option value="Đã chi">Đã chi</option><option value="Đã cọc">Đã cọc</option></select></div>
+    <div class="fg"><label>Người lập phiếu</label><select id="ePerson"></select></div>
+    <div class="fg"><label>Người chi trả</label><select id="ePayer"><option value="Lập Nguyên">Lập Nguyên</option><option value="He Huan Shan">He Huan Shan</option><option value="Kế Toán">Kế Toán</option><option value="NV tạm ứng">NV tạm ứng</option></select></div>
+    <div class="fg" id="eAdvRow" style="display:none"><label>NV tạm ứng</label><select id="eAdvStaff"></select></div>
+    <div class="fg" id="eAdvAmtRow" style="display:none"><label>Số tiền tạm ứng</label><input type="text" id="eAdvAmt" oninput="fmtIn(this)"/></div>
+    <div class="fg"><label>Phương thức</label><select id="eMethod"><option value="Tiền mặt">Tiền mặt</option><option value="Chuyển khoản">Chuyển khoản</option></select></div>
+    <div class="fg"><label>Hóa đơn VAT</label><select id="eVat"><option value="Không">Không</option><option value="Có">Có</option></select></div>
+    <div class="fg" id="eVatNumRow" style="display:none"><label>Số HĐ VAT</label><input type="text" id="eVatNum"/></div>
+    <div class="fg"><label>Mô tả</label><textarea id="eNote" rows="2" oninput="schedTrans('edit')"></textarea></div>
+    <div class="fg"><label>Dịch tự động<span class="cn"> 中文翻譯</span></label><textarea id="eNoteCn" rows="2" style="background:var(--g50)" placeholder="(Google Translate)"></textarea></div>
+    <div class="fg"><label>Ghi chú 備註</label><input type="text" id="eRemark" placeholder="Ghi chú thêm..."/></div>
+    <div class="mact"><button class="btn btn-o" onclick="closeM('editModal')">Huỷ</button><button class="btn btn-p" onclick="saveEdit()">Lưu</button></div>
+  </div>
+</div>
+
+<!-- FILE PREVIEW OVERLAY -->
+<div id="filePreviewOverlay">
+  <div class="fp-toolbar">
+    <span class="fp-name" id="fpFileName"></span>
+    <span id="fpCounter" style="font-size:11px;color:var(--g400);white-space:nowrap"></span>
+    <button class="btn btn-sm btn-p" onclick="fpPrint()">🖨️ In 列印</button>
+    <button class="btn btn-sm btn-o" onclick="fpDownload()">💾 Tải về 下載</button>
+    <button class="btn btn-sm btn-d" onclick="closeFilePreview()">✕ Đóng 關閉</button>
+  </div>
+  <div class="fp-body" id="fpBody"></div>
+  <button class="fp-nav prev" id="fpPrev" onclick="fpNavigate(-1)">‹</button>
+  <button class="fp-nav next" id="fpNext" onclick="fpNavigate(1)">›</button>
+</div>
+
+<!-- PRINT OVERLAY -->
+<div id="printOverlay">
+<div class="print-toolbar">
+<button class="btn btn-d" onclick="closePrintOverlay()">✕ Đóng</button>
+<button class="btn btn-p" onclick="window.print()">🖨️ In ngay</button>
+<span class="p-badge" id="printBadge">1 phiếu</span>
+<span style="font-size:11px;color:var(--g500)">PHIẾU CHI TIỀN MẶT 現金支出</span>
+</div>
+<div id="printPages"></div>
+</div>
+
+<!-- USER MANAGEMENT MODAL -->
+<div class="mbg" id="userModal">
+  <div class="modal">
+    <h3 id="umTitle">Thêm tài khoản 新增帳號</h3>
+    <input type="hidden" id="umIdx" value="-1"/>
+    <div class="fg"><label>Tên đăng nhập 帳號</label><input type="text" id="umUsername" placeholder="vd: nv02"/></div>
+    <div class="fg"><label>Mật khẩu 密碼</label><input type="text" id="umPassword" placeholder="Mật khẩu"/></div>
+    <div class="fg"><label>Tên hiển thị 顯示名</label><input type="text" id="umName" placeholder="Tên người dùng"/></div>
+    <div class="fg"><label>Vai trò 角色</label><select id="umRole">
+      <option value="staff">Nhân viên 員工</option>
+      <option value="accountant">KT Bộ phận 部門會計</option>
+      <option value="manager">Quản lý 管理</option>
+      <option value="boss">Boss 老闆</option>
+      <option value="chief_accountant">KT Trưởng 總會計</option><option value="cashier">Thủ quỹ 出納</option>
+    </select></div>
+    <div class="fg"><label>Mã NV (nếu là NV) 員工代碼</label><select id="umStaffCode"><option value="">-- Không --</option></select></div>
+    <div class="mact"><button class="btn btn-o" onclick="closeM('userModal')">Huỷ</button><button class="btn btn-p" onclick="saveUser()">Lưu 保存</button></div>
+  </div>
+</div>
+
+<!-- Change Password Modal -->
+<div class="mbg" id="pwModal">
+  <div class="modal" style="max-width:380px">
+    <h3>🔒 Đổi mật khẩu 更改密碼</h3>
+    <div class="fg" style="margin-bottom:10px"><label>Mật khẩu hiện tại 目前密碼</label><input type="password" id="pwOld" placeholder="Nhập mật khẩu hiện tại"/></div>
+    <div class="fg" style="margin-bottom:10px"><label>Mật khẩu mới 新密碼</label><input type="password" id="pwNew" placeholder="Tối thiểu 6 ký tự"/></div>
+    <div class="fg" style="margin-bottom:10px"><label>Xác nhận mật khẩu mới 確認密碼</label><input type="password" id="pwConfirm" placeholder="Nhập lại mật khẩu mới"/></div>
+    <div id="pwError" style="color:#dc2626;font-size:11px;margin-bottom:8px;display:none"></div>
+    <div class="mact"><button class="btn btn-o" onclick="closeM('pwModal')">Huỷ</button><button class="btn btn-p" onclick="doChangePw()">Đổi mật khẩu 確認</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
