@@ -91,7 +91,7 @@ function doLogin(){
   }
   enterApp();
 }
-function enterApp(){
+async function enterApp(){
   document.getElementById('roleGate').classList.add('hide');
   document.getElementById('mainApp').style.display='';
   document.getElementById('mainWrap').style.display='';
@@ -110,7 +110,8 @@ function enterApp(){
       });
     }
   },0);
-  loadData();
+  // AWAIT loadData để đảm bảo Sheets data loaded trước khi user thao tác
+  await loadData();
   cleanTestData();
   rebuildTabs();
 }
@@ -2450,16 +2451,47 @@ function closePrintOverlay(){document.getElementById('printOverlay').classList.r
 const LS_KEY='loho_chiphi_data';
 // *** QUAN TRỌNG: Thay URL n��y bằng URL Web App sau khi deploy Google Apps Script v2 ***
 const GSHEET_API='https://script.google.com/macros/s/AKfycby1QVV0lxT8oFjIg994tGaIQz1soVzCuCg2kXGuLtla3_OBOFeOzpdOa08pwlg9OD7ZIA/exec';
+// Polyfill AbortSignal.timeout cho trình duyệt cũ
+if(typeof AbortSignal!=='undefined'&&!AbortSignal.timeout){AbortSignal.timeout=function(ms){const c=new AbortController();setTimeout(()=>c.abort(new DOMException('TimeoutError','TimeoutError')),ms);return c.signal;};}
 let syncTimer=null;
 let isSyncing=false;
 let _lastSyncAction='auto-save';
 let _lastSyncDetail='';
+let _syncRetryCount=0;
+const SYNC_MAX_RETRY=3;
+let _pendingSyncData=null;
+let _sheetsLoaded=false;
+let _syncFailCount=0;
+
+function updateSyncUI(status,msg){
+  const el=document.getElementById('syncStatus');
+  if(!el)return;
+  const colors={ok:'#22c55e',warn:'#f59e0b',err:'#ef4444',sync:'#6366f1'};
+  el.style.color=colors[status]||'#64748b';
+  el.textContent=msg;
+  // Thêm nút retry nếu lỗi
+  if(status==='err'){
+    _syncFailCount++;
+    el.innerHTML=msg+' <button onclick="forceSync()" style="margin-left:6px;padding:2px 8px;font-size:10px;background:#ef4444;color:#fff;border:none;border-radius:4px;cursor:pointer">🔄 Thử lại</button>';
+    if(_syncFailCount>=2){
+      el.innerHTML+=' <span style="font-size:9px;color:#ef4444;display:block;margin-top:2px">⚠ Dữ liệu chưa đồng bộ! Bấm "Thử lại" hoặc Ctrl+Shift+R</span>';
+    }
+  }else if(status==='ok'){
+    _syncFailCount=0;
+  }
+}
+
+function forceSync(){
+  _syncRetryCount=0;
+  isSyncing=false;
+  const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
+  syncToSheets(data);
+}
 
 function saveData(actionType,detail){
   try{
     if(actionType)_lastSyncAction=actionType;
     if(detail)_lastSyncDetail=detail;
-    // Auto-detect action nếu chưa set
     if(!actionType&&!_lastSyncAction){_lastSyncAction='auto-save';}
     items.forEach(e=>{delete e._selCtx;e.selected=false;});
     const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
@@ -2472,21 +2504,26 @@ function saveData(actionType,detail){
     // Auto sync to Google Sheets (debounce 3 giây)
     if(GSHEET_API){
       clearTimeout(syncTimer);
-      syncTimer=setTimeout(()=>syncToSheets(data),3000);
+      // Nếu đang sync, queue lại (không bỏ qua)
+      if(isSyncing){
+        _pendingSyncData=data;
+        console.log('[SYNC] Queued: đang sync, sẽ sync lại sau khi xong');
+      }else{
+        syncTimer=setTimeout(()=>syncToSheets(data),3000);
+      }
     }
   }catch(e){console.error('saveData error:',e);}
 }
 // Helper: saveData với action log
 function saveLog(action,detail){_lastSyncAction=action;_lastSyncDetail=detail||'';saveData();}
 
-function loadData(){
+async function loadData(){
   try{
     // Ưu tiên: localStorage > window._ld > PRELOAD
     let raw=localStorage.getItem(LS_KEY)||window._ld;
     if(raw){
       const d=JSON.parse(raw);
       items=d.items||[];budgets=d.budgets||{};nextId=d.nextId||1;advances=d.advances||[];advNextId=d.advNextId||1;cashBatches=d.cashBatches||[];cashBatchNextId=d.cashBatchNextId||1;
-      // Merge PRELOAD: thêm các item có id trong PRELOAD nhưng chưa có trong localStorage
       if(typeof PRELOAD!=='undefined'&&PRELOAD.length){
         const existIds=new Set(items.map(e=>e.id));
         PRELOAD.forEach(p=>{if(!existIds.has(p.id)){items.push(JSON.parse(JSON.stringify(p)));}});
@@ -2502,8 +2539,11 @@ function loadData(){
       try{localStorage.setItem('loho_users',JSON.stringify(USERS));}catch(e){}
     }
     items.forEach(e=>{if(!('submitted'in e))e.submitted=false;if(!('submittedDate'in e))e.submittedDate='';if(!('remark'in e))e.remark='';if(!('hidden'in e))e.hidden=((e.type==='Lương nhân viên'||e.type==='Thưởng')&&e.staffCode==='VP001');if(e.date&&typeof e.date==='string'&&e.date.length>10)e.date=e.date.slice(0,10);if(!('paymentHistory'in e))e.paymentHistory=[];});
-    // Load from Google Sheets nếu có API
-    if(GSHEET_API)loadFromSheets();
+    // Load from Google Sheets — AWAIT để đảm bảo data đầy đủ trước khi user thao tác
+    if(GSHEET_API){
+      updateSyncUI('sync','⏳ Đang tải dữ liệu...');
+      await loadFromSheets();
+    }
   }catch(e){console.error('loadData error:',e);}
 }
 
@@ -2574,15 +2614,18 @@ function mergeAdvances(localAdv, remoteAdv){
   return Array.from(localMap.values());
 }
 
-// Sync lên Google Sheets (v3: merge trước khi save — không ghi đè data người khác)
+// Sync lên Google Sheets (v4: retry + queue + await loadFromSheets)
 async function syncToSheets(data){
   if(isSyncing||!GSHEET_API)return;
   isSyncing=true;
+  updateSyncUI('sync','⏳ Đang đồng bộ...');
+  console.log('[SYNC] Start — items:',data.items.length,'user:',(currentUser?currentUser.username:'?'));
   try{
-    // Bước 1: Load data hiện tại từ Sheets
+    // Bước 1: Load data hiện tại từ Sheets — BẮT BUỘC phải thành công
     let remoteItems=[],remoteAdvances=[],remoteBudgets={},remoteNextId=1,remoteAdvNextId=1;
+    let preLoadOk=false;
     try{
-      const loadRes=await fetch(GSHEET_API+'?action=load');
+      const loadRes=await fetch(GSHEET_API+'?action=load',{signal:AbortSignal.timeout(30000)});
       const lr=await loadRes.json();
       if(lr.ok){
         remoteItems=lr.items||[];
@@ -2590,61 +2633,112 @@ async function syncToSheets(data){
         remoteBudgets=lr.budgets||{};
         remoteNextId=lr.nextId||1;
         remoteAdvNextId=lr.advNextId||1;
+        preLoadOk=true;
+        console.log('[SYNC] Remote loaded:',remoteItems.length,'items');
+      }else{
+        console.warn('[SYNC] Remote load returned ok=false:',lr.error);
       }
-    }catch(loadErr){console.log('Pre-sync load skipped:',loadErr.message);}
+    }catch(loadErr){console.warn('[SYNC] Pre-sync load error:',loadErr.message);}
 
-    // Bước 2: Merge local + remote
-    const mergedItems=mergeItems(data.items||[], remoteItems);
-    const mergedAdvances=mergeAdvances(data.advances||[], remoteAdvances);
-    const mergedNextId=Math.max(data.nextId||1, remoteNextId, mergedItems.reduce((mx,e)=>Math.max(mx,e.id),0)+1);
-    const mergedAdvNextId=Math.max(data.advNextId||1, remoteAdvNextId, mergedAdvances.reduce((mx,a)=>Math.max(mx,a.id||0),0)+1);
-    // Merge budgets (local wins)
-    const mergedBudgets=Object.assign({},remoteBudgets,data.budgets||{});
+    // *** CRITICAL FIX: Nếu pre-load FAIL và local có ÍT hơn remote (hoặc ko biết), DỪNG SYNC ***
+    // Tránh ghi đè Sheets với data thiếu
+    if(!preLoadOk){
+      console.error('[SYNC] ABORTED: Cannot load remote data — refusing to POST to prevent data loss');
+      updateSyncUI('err','⚠️ Không tải được dữ liệu server — chưa đồng bộ');
+      _syncRetryCount++;
+      if(_syncRetryCount<=SYNC_MAX_RETRY){
+        const delay=5000*_syncRetryCount;
+        console.log('[SYNC] Will retry in',delay/1000+'s...');
+        updateSyncUI('warn','🔄 Thử lại lần '+_syncRetryCount+'...');
+        isSyncing=false;
+        setTimeout(()=>syncToSheets(data),delay);
+        return;
+      }
+      isSyncing=false;
+      updateSyncUI('err','⚠️ Không thể đồng bộ — kiểm tra kết nối mạng');
+      return;
+    }
 
-    // Bước 3: Cập nhật local data với merged result
+    // Bước 2: Luôn dùng items HIỆN TẠI (không dùng snapshot cũ từ debounce)
+    const currentData={items:[...items],budgets:{...budgets},nextId,advances:[...advances],advNextId,cashBatches:[...(cashBatches||[])],cashBatchNextId:cashBatchNextId||1};
+
+    // Bước 3: Merge local + remote
+    const mergedItems=mergeItems(currentData.items, remoteItems);
+    const mergedAdvances=mergeAdvances(currentData.advances, remoteAdvances);
+    const mergedNextId=Math.max(currentData.nextId||1, remoteNextId, mergedItems.reduce((mx,e)=>Math.max(mx,e.id),0)+1);
+    const mergedAdvNextId=Math.max(currentData.advNextId||1, remoteAdvNextId, mergedAdvances.reduce((mx,a)=>Math.max(mx,a.id||0),0)+1);
+    const mergedBudgets=Object.assign({},remoteBudgets,currentData.budgets||{});
+
+    // Bước 4: Cập nhật local data với merged result
     items=mergedItems;
     nextId=mergedNextId;
     advances=mergedAdvances;
     advNextId=mergedAdvNextId;
     budgets=mergedBudgets;
-    // Lưu merged vào localStorage
     const mergedJson=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
     try{localStorage.setItem(LS_KEY,mergedJson);}catch(se){}
 
-    // Bước 4: Gửi merged data lên Sheets
+    // Bước 5: POST merged data lên Sheets
     const merged={items:mergedItems,budgets:mergedBudgets,nextId:mergedNextId,advances:mergedAdvances,advNextId:mergedAdvNextId,
-      cashBatches:data.cashBatches||[],cashBatchNextId:data.cashBatchNextId||1,savedAt:new Date().toISOString()};
+      cashBatches:currentData.cashBatches,cashBatchNextId:currentData.cashBatchNextId,savedAt:new Date().toISOString()};
     const syncUser=(typeof currentUser!=='undefined'&&currentUser)?currentUser.displayName||currentUser.username||currentRole:currentRole||'unknown';
     merged._syncUser=syncUser;
     merged._syncAction=_lastSyncAction||'auto-save';
     merged._syncDetail=_lastSyncDetail||'';
     _lastSyncAction='auto-save';_lastSyncDetail='';
-    const res=await fetch(GSHEET_API+'?action=save',{method:'POST',body:JSON.stringify(merged),headers:{'Content-Type':'text/plain'}});
+
+    const bodyStr=JSON.stringify(merged);
+    console.log('[SYNC] POST size:',bodyStr.length,'bytes, merged:',mergedItems.length,'items');
+    const res=await fetch(GSHEET_API+'?action=save',{method:'POST',body:bodyStr,headers:{'Content-Type':'text/plain'},signal:AbortSignal.timeout(60000)});
     const r=await res.json();
     if(r.ok){
-      console.log('Synced to Sheets (merged):',r.savedAt,r.itemCount,'items (local:'+data.items.length+' remote:'+remoteItems.length+' merged:'+mergedItems.length+')');
-      const el=document.getElementById('syncStatus');
-      if(el){el.textContent='☁️ Đã lưu '+new Date().toLocaleTimeString('vi-VN');el.style.color='#22c55e';}
-      // Rerender nếu có items mới từ remote
-      if(mergedItems.length>data.items.length)rerender();
+      console.log('[SYNC] SUCCESS:',r.savedAt,r.itemCount,'items');
+      updateSyncUI('ok','☁️ Đã lưu '+new Date().toLocaleTimeString('vi-VN'));
+      _syncRetryCount=0;
+      if(mergedItems.length>currentData.items.length)rerender();
     }else{
-      console.error('Sheets sync error:',r.error);
-      const el=document.getElementById('syncStatus');
-      if(el){el.textContent='⚠️ Lỗi sync';el.style.color='#ef4444';}
+      console.error('[SYNC] Server error:',r.error);
+      updateSyncUI('err','⚠️ Lỗi: '+(r.error||'server error'));
+      // Auto retry
+      _syncRetryCount++;
+      if(_syncRetryCount<=SYNC_MAX_RETRY){
+        console.log('[SYNC] Auto retry',_syncRetryCount+'/'+SYNC_MAX_RETRY,'in 5s...');
+        isSyncing=false;
+        setTimeout(()=>syncToSheets(data),5000);
+        return;
+      }
     }
   }catch(e){
-    console.error('Sheets sync failed:',e);
-    const el=document.getElementById('syncStatus');
-    if(el){el.textContent='⚠️ Offline';el.style.color='#f59e0b';}
+    console.error('[SYNC] FAILED:',e.message||e);
+    updateSyncUI('err','⚠️ Lỗi kết nối: '+e.message);
+    // Auto retry on network error
+    _syncRetryCount++;
+    if(_syncRetryCount<=SYNC_MAX_RETRY){
+      const delay=5000*_syncRetryCount;
+      console.log('[SYNC] Auto retry',_syncRetryCount+'/'+SYNC_MAX_RETRY,'in',delay/1000+'s...');
+      updateSyncUI('warn','🔄 Thử lại lần '+_syncRetryCount+'...');
+      isSyncing=false;
+      setTimeout(()=>syncToSheets(data),delay);
+      return;
+    }
   }
   isSyncing=false;
+  // Xử lý pending sync nếu có (data mới được tạo trong lúc đang sync)
+  if(_pendingSyncData){
+    const pd=_pendingSyncData;
+    _pendingSyncData=null;
+    console.log('[SYNC] Processing queued sync...');
+    _syncRetryCount=0;
+    setTimeout(()=>syncToSheets(pd),1000);
+  }
 }
 
-// Load từ Google Sheets (khi mở trang) — v3: merge thay vì replace
+// Load từ Google Sheets (khi mở trang) — v4: await + robust error handling
 async function loadFromSheets(){
   if(!GSHEET_API)return;
   try{
-    const res=await fetch(GSHEET_API+'?action=load');
+    console.log('[LOAD] Fetching from Sheets...');
+    const res=await fetch(GSHEET_API+'?action=load',{signal:AbortSignal.timeout(30000)});
     const r=await res.json();
     if(r.ok&&r.items&&r.items.length>0){
       const remoteItems=r.items||[];
@@ -2653,7 +2747,6 @@ async function loadFromSheets(){
       const remoteNextId=r.nextId||1;
       const remoteAdvNextId=r.advNextId||1;
 
-      // Merge local + remote (không mất data bên nào)
       const prevCount=items.length;
       items=mergeItems(items, remoteItems);
       advances=mergeAdvances(advances, remoteAdvances);
@@ -2661,22 +2754,23 @@ async function loadFromSheets(){
       advNextId=Math.max(advNextId, remoteAdvNextId, advances.reduce((mx,a)=>Math.max(mx,a.id||0),0)+1);
       budgets=Object.assign({},remoteBudgets,budgets);
 
-      // Đảm bảo fields bắt buộc
       items.forEach(e=>{if(!('submitted'in e))e.submitted=false;if(!('submittedDate'in e))e.submittedDate='';if(!('remark'in e))e.remark='';});
 
-      // Lưu merged vào localStorage
       const json=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
       try{localStorage.setItem(LS_KEY,json);}catch(se){}
 
-      console.log('Loaded from Sheets (merged): local='+prevCount+' remote='+remoteItems.length+' merged='+items.length);
+      console.log('[LOAD] Merged: local='+prevCount+' remote='+remoteItems.length+' total='+items.length);
+      _sheetsLoaded=true;
       rerender();
+    }else{
+      console.log('[LOAD] No items from Sheets or ok=false');
+      _sheetsLoaded=true;
     }
-    const el=document.getElementById('syncStatus');
-    if(el){el.textContent='☁️ Online';el.style.color='#22c55e';}
+    updateSyncUI('ok','☁️ Online');
   }catch(e){
-    console.log('Sheets load skipped (offline):',e.message);
-    const el=document.getElementById('syncStatus');
-    if(el){el.textContent='💾 Offline (localStorage)';el.style.color='#f59e0b';}
+    console.warn('[LOAD] Failed (offline):',e.message);
+    updateSyncUI('warn','💾 Offline — dùng dữ liệu cục bộ');
+    _sheetsLoaded=true; // Cho phép user thao tác dù offline
   }
 }
 // Backup: tải file JSON về máy
