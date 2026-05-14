@@ -69,6 +69,12 @@ const ML=['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12'];
 
 let items=[],budgets={},nextId=1,charts={},advances=[],advNextId=1,cashBatches=[],cashBatchNextId=1;
 
+// Track deleted item IDs to prevent merge from re-adding them
+let _deletedIds=new Set();
+function loadDeletedIds(){try{const s=localStorage.getItem('loho_deletedIds');if(s)_deletedIds=new Set(JSON.parse(s));}catch(e){}}
+function saveDeletedIds(){try{localStorage.setItem('loho_deletedIds',JSON.stringify([..._deletedIds]));}catch(e){}}
+loadDeletedIds();
+
 // ============ AUTH & ROLE SYSTEM ============
 function togglePwVis(){const p=document.getElementById('loginPass');const b=document.getElementById('pwToggleBtn');if(p.type==='password'){p.type='text';b.textContent='🙈';}else{p.type='password';b.textContent='👁';}}
 function doLogin(){
@@ -666,8 +672,10 @@ function buildMonth(m,year){
 
   <!-- Tab: Chờ QL duyệt (pending + approved) -->
   <div id="aqpanel_mgr_${m}" style="display:none">
+    <div class="batch-hdr" data-m="${m}" data-q="acctMgr"><span class="sel-count"></span><button class="btn btn-sm btn-print" onclick="batchPrint('${m}')">🖨️ In 列印</button></div>
     <div style="overflow-x:auto;max-height:50vh;overflow-y:auto;position:relative">
       <table><thead><tr>
+        <th style="width:28px"><input type="checkbox" onchange="toggleAllAcctQ('${m}','acctMgr',this.checked)"/></th>
         <th>STT 序號</th><th>Mã số 編號</th><th>Ngày 日期</th><th>Loại 類型</th><th>Mô tả 說明</th>
         <th style="text-align:right">Số tiền 金額</th><th>PT 方式</th><th>Người lập 經辦人</th><th style="width:30px;text-align:center" title="Đính kèm 附件">📎</th><th>Trạng thái 狀態</th><th style="width:56px"></th>
       </tr></thead><tbody id="acctMgrTb_${m}"></tbody></table>
@@ -680,8 +688,10 @@ function buildMonth(m,year){
 
   <!-- Tab: Chờ Boss duyệt -->
   <div id="aqpanel_boss_${m}" style="display:none">
+    <div class="batch-hdr" data-m="${m}" data-q="acctBoss"><span class="sel-count"></span><button class="btn btn-sm btn-print" onclick="batchPrint('${m}')">🖨️ In 列印</button></div>
     <div style="overflow-x:auto;max-height:50vh;overflow-y:auto;position:relative">
       <table><thead><tr>
+        <th style="width:28px"><input type="checkbox" onchange="toggleAllAcctQ('${m}','acctBoss',this.checked)"/></th>
         <th>STT 序號</th><th>Mã số 編號</th><th>Ngày 日期</th><th>Loại 類型</th><th>Mô tả 說明</th>
         <th style="text-align:right">Số tiền 金額</th><th>PT 方式</th><th>Người lập 經辦人</th><th style="width:30px;text-align:center" title="Đính kèm 附件">📎</th><th>Trạng thái 狀態</th><th style="width:56px"></th>
       </tr></thead><tbody id="acctBossTb_${m}"></tbody></table>
@@ -694,8 +704,10 @@ function buildMonth(m,year){
 
   <!-- Tab: Chờ KT chuyển khoản -->
   <div id="aqpanel_ck_${m}" style="display:none">
+    <div class="batch-hdr" data-m="${m}" data-q="acctCk"><span class="sel-count"></span><button class="btn btn-sm btn-print" onclick="batchPrint('${m}')">🖨️ In 列印</button></div>
     <div style="overflow-x:auto;max-height:50vh;overflow-y:auto;position:relative">
       <table><thead><tr>
+        <th style="width:28px"><input type="checkbox" onchange="toggleAllAcctQ('${m}','acctCk',this.checked)"/></th>
         <th>STT 序號</th><th>Mã số 編號</th><th>Ngày 日期</th><th>Loại 類型</th><th>Mô tả 說明</th>
         <th style="text-align:right">Số tiền 金額</th><th>PT 方式</th><th>Người lập 經辦人</th><th style="width:30px;text-align:center" title="Đính kèm 附件">📎</th><th>Trạng thái 狀態</th><th style="width:56px"></th>
       </tr></thead><tbody id="acctCkTb_${m}"></tbody></table>
@@ -708,8 +720,10 @@ function buildMonth(m,year){
 
   <!-- Tab: Chờ chi tiền mặt -->
   <div id="aqpanel_cash_${m}" style="display:none">
+    <div class="batch-hdr" data-m="${m}" data-q="acctCash"><span class="sel-count"></span><button class="btn btn-sm btn-print" onclick="batchPrint('${m}')">🖨️ In 列印</button></div>
     <div style="overflow-x:auto;max-height:50vh;overflow-y:auto;position:relative">
       <table><thead><tr>
+        <th style="width:28px"><input type="checkbox" onchange="toggleAllAcctQ('${m}','acctCash',this.checked)"/></th>
         <th>STT 序號</th><th>Mã số 編號</th><th>Ngày 日期</th><th>Loại 類型</th><th>Mô tả 說明</th>
         <th style="text-align:right">Số tiền 金額</th><th>PT 方式</th><th>Người lập 經辦人</th><th style="width:30px;text-align:center" title="Đính kèm 附件">📎</th><th>Trạng thái 狀態</th><th style="width:56px"></th>
       </tr></thead><tbody id="acctCashTb_${m}"></tbody></table>
@@ -886,6 +900,7 @@ function deleteItem(id){
   if(isStaff()&&e.staffCode!==currentUser.staffCode){toast('Không có quyền');return;}
   if(!isMgr()&&e.status!=='draft'){toast('Chỉ xoá được khoản ở trạng thái Nháp. Dùng "Thu hồi" nếu cần chỉnh sửa');return;}
   if(!confirm('Xoá?'))return;
+  _deletedIds.add(id);saveDeletedIds();
   items=items.filter(x=>x.id!==id);saveLog('xóa-chi-phí',e.code+' '+e.type);rerender();toast('Đã xoá');
 }
 
@@ -1034,7 +1049,7 @@ function batchDelete(m){
   if(!deletable.length){toast('Chỉ xoá được khoản ở trạng thái Nháp');return;}
   if(blocked>0&&!confirm(`${blocked}/${sel.length} khoản đã gửi duyệt — không thể xoá.\nXoá ${deletable.length} khoản nháp?`))return;
   else if(blocked===0&&!confirm(`Xoá ${deletable.length} khoản?`))return;
-  const ids=new Set(deletable.map(e=>e.id));items=items.filter(e=>!ids.has(e.id));saveData();renderM(m);toast(`Đã xoá ${deletable.length} khoản`);
+  const ids=new Set(deletable.map(e=>e.id));deletable.forEach(e=>{_deletedIds.add(e.id);});saveDeletedIds();items=items.filter(e=>!ids.has(e.id));saveData();renderM(m);toast(`Đã xoá ${deletable.length} khoản`);
 }
 function batchSend(m){
   const sel=getSel(m).filter(e=>e.status==='draft');if(!sel.length){toast('Không có mục nháp nào được chọn');return;}
@@ -1756,6 +1771,7 @@ function toggleAllAcctQ(m,queue,checked){
     :items.filter(e=>e.date.startsWith(ym)&&!e.hidden&&!e.createdByManager);
   let filtered=[];
   if(queue==='acctDraft')filtered=allM.filter(e=>e.status==='draft');
+  else if(queue==='acctMgr')filtered=allM.filter(e=>['pending','approved'].includes(e.status));
   else if(queue==='acctPend')filtered=allM.filter(e=>['draft','pending','approved'].includes(e.status));
   else if(queue==='acctBoss')filtered=allM.filter(e=>e.status==='voucher');
   else if(queue==='acctCk')filtered=allM.filter(e=>e.status==='boss_approved'&&e.method!=='Tiền mặt');
@@ -1876,7 +1892,7 @@ function renderM(m){
       '<td style="font-size:10px">'+(staff?staff.name:e.staffCode)+'</td>'+
       '<td style="text-align:center">'+(e.attachments&&e.attachments.length?'<span style="font-size:11px;cursor:pointer" title="'+e.attachments.length+' file đính kèm 附件" onclick="event.stopPropagation();previewAttachments('+e.id+')">📎<span style="font-size:8px;color:var(--p);font-weight:700">'+e.attachments.length+'</span></span>':'')+'</td>'+
       '<td><span class="st '+st.c+'" onclick="event.stopPropagation();openApproval('+e.id+')">'+st.l+'</span></td>'+
-      '<td style="white-space:nowrap">'+(e.status==='draft'?'<button class="bi" title="Chỉnh sửa 編輯" onclick="event.stopPropagation();openEdit('+e.id+')">✏️</button><button class="bi" title="In phiếu chi 列印" onclick="event.stopPropagation();printItem('+e.id+')">🖨️</button>':'')+'<button class="bi" onclick="event.stopPropagation();openApproval('+e.id+')">👁</button></td></tr>';
+      '<td style="white-space:nowrap">'+(e.status==='draft'?'<button class="bi" title="Chỉnh sửa 編輯" onclick="event.stopPropagation();openEdit('+e.id+')">✏️</button>':'')+'<button class="bi" title="In phiếu 列印" onclick="event.stopPropagation();printItem('+e.id+')">🖨️</button><button class="bi" onclick="event.stopPropagation();openApproval('+e.id+')">👁</button></td></tr>';
   };
   const _readOnlyRowFn=function(e,i){
     const ds=fmtDate(e.date);
@@ -1890,7 +1906,8 @@ function renderM(m){
     const prepaidTag=e.prepaid?'<div style="margin-top:3px;background:rgba(5,150,105,.06);color:#059669;padding:3px 8px;border-radius:6px;font-size:9px;font-weight:700;border:1px solid rgba(5,150,105,.15)">💵 QL đã ứng<br><span style="font-weight:500">'+e.prepaidBy+' — '+fmtDate(e.prepaidDate)+'</span></div>':'';
     const qAdvObj=e.payer==='NV tạm ứng'&&e.advStaff?STAFF.find(s=>s.code===e.advStaff):null;
     const qAdvTag=e.payer==='NV tạm ứng'?'<div style="margin-top:3px;background:'+(e.advPaid?'rgba(16,185,129,.15)':'rgba(251,191,36,.15)')+';color:'+(e.advPaid?'#34d399':'#fbbf24')+';padding:3px 8px;border-radius:6px;font-size:9px;font-weight:600;border:1px solid '+(e.advPaid?'rgba(110,231,183,.3)':'rgba(252,211,77,.3)')+'">💰 TƯ: '+(qAdvObj?qAdvObj.name:e.advStaff)+' | '+fmtV(e.advAmt||0)+(e.advPaid?' ✓':' ✗')+'</div>':'';
-    return '<tr style="cursor:pointer" onclick="openApproval('+e.id+')">'+
+    return '<tr style="cursor:pointer" onclick="if(!event.target.closest(\'input,button,.bi\')){openApproval('+e.id+')}">'+
+      '<td><input type="checkbox" '+(e.selected&&e._selCtx===_currentQCtx?'checked':'')+' onchange="event.stopPropagation();toggleOne('+e.id+',\''+_currentQCtx+'\')"/></td>'+
       '<td style="text-align:center;color:var(--g400);font-size:10px">'+(i+1)+'</td>'+
       '<td style="font-size:10px;font-weight:500">'+(e.code||'')+'</td>'+
       '<td style="font-size:10px">'+ds+wfDate+'</td>'+
@@ -1901,7 +1918,7 @@ function renderM(m){
       '<td style="font-size:10px">'+(staff?staff.name:e.staffCode)+'</td>'+
       '<td style="text-align:center">'+(e.attachments&&e.attachments.length?'<span style="font-size:11px;cursor:pointer" title="'+e.attachments.length+' file đính kèm 附件" onclick="event.stopPropagation();previewAttachments('+e.id+')">📎<span style="font-size:8px;color:var(--p);font-weight:700">'+e.attachments.length+'</span></span>':'')+'</td>'+
       '<td><span class="st '+st.c+'">'+st.l+'</span></td>'+
-      '<td><button class="bi" onclick="event.stopPropagation();openApproval('+e.id+')">👁</button></td></tr>';
+      '<td style="white-space:nowrap"><button class="bi" title="In phiếu 列印" onclick="event.stopPropagation();printItem('+e.id+')">🖨️</button><button class="bi" onclick="event.stopPropagation();openApproval('+e.id+')">👁</button></td></tr>';
   };
   function _fillQueueTable(tbId,emptyId,cntId,totalId,fcId,arr,searchKey,readOnly){
     // Sort: newest first (by date desc, then id desc)
@@ -2588,6 +2605,7 @@ function mergeItems(localItems, remoteItems){
   const localMap=new Map(localItems.map(e=>[e.id,e]));
   // Thêm items từ remote mà local chưa có
   remoteItems.forEach(re=>{
+    if(_deletedIds.has(re.id))return; // Đã bị xóa — không thêm lại
     if(!localMap.has(re.id)){
       localMap.set(re.id,re);
     } else {
@@ -2604,7 +2622,8 @@ function mergeItems(localItems, remoteItems){
       }
     }
   });
-  return Array.from(localMap.values());
+  // Lọc bỏ items đã xóa
+  return Array.from(localMap.values()).filter(e=>!_deletedIds.has(e.id));
 }
 
 // Merge advances
