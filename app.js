@@ -444,7 +444,20 @@ function staffOpts(){return STAFF.map(s=>`<option value="${s.code}">${s.name} ${
 function payerOpts(){return PAYERS.map(p=>`<option value="${p}">${p}</option>`).join('')}
 
 function staffDisplayName(code){const s=STAFF.find(x=>x.code===code);return s?(s.name+' '+s.cn+' ('+s.code+')'):(code||'');}
-function genCode(m){const ym=getYear()+'-'+m;const cnt=items.filter(e=>e.date.startsWith(ym)).length+1;return 'LN'+getYear().slice(2)+m+String(cnt).padStart(2,'0');}
+function genCode(m){
+  // v5 fix: Tìm số thứ tự cao nhất từ MÃ CODE hiện có (không đếm items)
+  // Tránh trùng mã khi mỗi trình duyệt có số items khác nhau
+  const prefix='LN'+getYear().slice(2)+m; // ví dụ: "LN260605"
+  let maxNum=0;
+  items.forEach(e=>{
+    const code=e.code||'';
+    if(code.startsWith(prefix)){
+      const num=parseInt(code.slice(prefix.length),10);
+      if(!isNaN(num)&&num>maxNum)maxNum=num;
+    }
+  });
+  return prefix+String(maxNum+1).padStart(2,'0');
+}
 
 function resetForm(m,fileInput){
   document.getElementById('fDate_'+m).value='';
@@ -884,7 +897,10 @@ async function addItem(m){
   const att=await readAllFiles(fileInput);
 
   const cat=CATS.find(c=>c.vn===type);
-  items.push({id:nextId++,date,code:genCode(m),type,typeCn:cat?cat.cn:'',amount,payStatus,staffCode,payer,advStaff,advAmt,advPaid:false,method,note,noteCn,vat,vatNum,remark,attachments:att,
+  // v5: ID = timestamp-based để tránh trùng giữa các trình duyệt
+  const newId=Date.now()+Math.floor(Math.random()*1000);
+  if(newId>=nextId)nextId=newId+1;
+  items.push({id:newId,date,code:genCode(m),type,typeCn:cat?cat.cn:'',amount,payStatus,staffCode,payer,advStaff,advAmt,advPaid:false,method,note,noteCn,vat,vatNum,remark,attachments:att,
     status:'draft',approvedDate:'',voucherDate:'',paidDate:'',rejectedReason:'',selected:false,submitted:false,submittedDate:'',
     createdByManager:isMgr()||false,createdByAccountant:isAccountant()||false,prepaid:false,prepaidBy:'',prepaidDate:'',hidden:false,locked:false,lockedBy:'',lockedDate:''});
 
