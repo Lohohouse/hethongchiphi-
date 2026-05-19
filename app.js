@@ -753,7 +753,7 @@ function buildMonth(m,year){
 
   ${isCashier()?`<!-- Cash Batch Summary -->
   <div class="cd" style="border-left-color:#7c3aed"><div class="cd-h" style="background:linear-gradient(135deg,rgba(124,58,237,.04),transparent)"><h2 style="color:#7c3aed">Tổng hợp đợt chi tiền mặt 現金批次 <span id="cashBatchCnt_${m}" style="font-size:11px;font-weight:800;color:var(--d);background:var(--dl);padding:2px 8px;border-radius:10px"></span></h2></div>
-  <div style="overflow-x:auto;max-height:50vh;overflow-y:auto;position:relative">
+  <div style="overflow-x:auto;max-height:350px;overflow-y:auto;position:relative;border:1px solid #e5e7eb;border-radius:8px;margin:6px">
     <div id="cashBatchSummary_${m}" style="padding:10px"></div>
   </div>
   <div id="cashBatchEmpty_${m}" class="empty" style="display:none">Chưa có đợt thanh toán</div></div>`:''}
@@ -2472,7 +2472,7 @@ const nUp=(e.note||'').toUpperCase();
 const nCn=e.noteCn||'';
 return '<div class="pv-page">'+
 '<img class="pvbg" src="voucher_bg.png">'+
-'<div class="pf" style="left:80%;top:10%;font-size:12px;font-weight:700;width:10%;text-align:center">'+(e.code||'')+'</div>'+
+'<div class="pf" style="left:83.7%;top:12.2%;font-size:10px;font-weight:700;width:10%;text-align:center">'+(e.code||'')+'</div>'+
 '<div class="pf" style="left:10.3%;top:25.2%;font-size:11px;font-weight:600;width:7%;text-align:center">'+yr+'/'+mo+'/'+dy+'</div>'+
 '<div class="pf" style="left:30.7%;top:29.7%"><div class="dig-row">'+digL+'</div></div>'+
 '<div class="pf" style="left:56.2%;top:31.3%"><div class="dig-row">'+digR+'</div></div>'+
