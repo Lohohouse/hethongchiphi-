@@ -62,7 +62,7 @@ const STAFF=[
 ];
 
 const PAYERS=['Lập Nguyên','He Huan Shan','Kế Toán','NV tạm ứng'];
-const STATUS={draft:{l:'Nháp',c:'st-draft'},pending:{l:'Chờ duyệt',c:'st-pending'},approved:{l:'Đã duyệt',c:'st-approved'},voucher:{l:'Đã nộp CT',c:'st-voucher'},boss_approved:{l:'Boss duyệt ✓',c:'st-boss'},paid:{l:'Hoàn tất',c:'st-paid'},rejected:{l:'Từ chối',c:'st-rejected'},returned:{l:'Đã hoàn trả',c:'st-paid'},recall_pending:{l:'Chờ thu hồi',c:'st-recall'},cashier_review:{l:'Thủ quỹ kiểm tra',c:'st-cashier'},cash_disbursed:{l:'Đã chi TM',c:'st-cash-disbursed'},cash_confirmed:{l:'Đã nhận tiền ✓',c:'st-cash-confirmed'}};
+const STATUS={draft:{l:'Nháp',c:'st-draft'},pending:{l:'Chờ duyệt',c:'st-pending'},approved:{l:'Chờ nộp CT',c:'st-approved'},voucher:{l:'Đã nộp CT',c:'st-voucher'},boss_approved:{l:'Boss duyệt ✓',c:'st-boss'},paid:{l:'Hoàn tất',c:'st-paid'},rejected:{l:'Từ chối',c:'st-rejected'},returned:{l:'Đã hoàn trả',c:'st-paid'},recall_pending:{l:'Chờ thu hồi',c:'st-recall'},cashier_review:{l:'Thủ quỹ kiểm tra',c:'st-cashier'},cash_disbursed:{l:'Đã chi TM',c:'st-cash-disbursed'},cash_confirmed:{l:'Đã nhận tiền ✓',c:'st-cash-confirmed'}};
 const COLORS=['#3b82f6','#10b981','#f59e0b','#ec4899','#8b5cf6','#14b8a6','#f97316','#ef4444','#06b6d4','#84cc16','#a855f7','#e11d48','#0ea5e9','#65a30d','#d946ef','#f43f5e','#0891b2','#ca8a04','#7c3aed','#dc2626','#059669','#2563eb','#c026d3','#e879f9','#facc15','#4ade80','#fb923c','#38bdf8','#a3e635','#f472b6','#818cf8','#34d399','#fbbf24'];
 const MS=['01','02','03','04','05','06','07','08','09','10','11','12'];
 const ML=['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12'];
@@ -196,9 +196,9 @@ function isCashier(){return hasRole('cashier')}
 function canManageUsers(){return isBoss()||isManager()}
 function canSeeAll(){return !isStaff()}
 function canSeeWorkflow(){return isChiefAccountant()||isCashier()||isBoss()||isManager()}
-function colSubmitCT(){return isChiefAccountant()||isCashier()}
-function colBossApproval(){return isChiefAccountant()||isCashier()||isBoss()}
-function colPayDone(){return isChiefAccountant()||isCashier()}
+function colSubmitCT(){return isChiefAccountant()}
+function colBossApproval(){return isChiefAccountant()||isBoss()}
+function colPayDone(){return isChiefAccountant()}
 function canExport(){return !isStaff()}
 function isMgr(){return isManager()||isBoss()}
 // Role-based visibility filter: each role only sees items at their relevant workflow stage
@@ -221,7 +221,7 @@ function applyRoleFilter(arr){
     return arr.filter(e=>e.status!=='draft'||(e.createdByManager&&e.staffCode===currentUser.staffCode));
   }
   if(isBoss())return arr.filter(e=>['voucher','boss_approved','paid','rejected','cashier_review','cash_disbursed','cash_confirmed','recall_pending'].includes(e.status));
-  if(isCashier())return arr.filter(e=>e.method==='Tiền mặt'&&['cashier_review','cash_disbursed','cash_confirmed','paid','rejected'].includes(e.status));
+  if(isCashier())return arr.filter(e=>['pending','approved','voucher','boss_approved','cashier_review','cash_disbursed','cash_confirmed','paid','rejected'].includes(e.status));
   if(isChiefAccountant())return arr.filter(e=>e.method!=='Tiền mặt'&&['boss_approved','paid','rejected'].includes(e.status));
   return arr;
 }
@@ -239,7 +239,7 @@ function getStatusFilterOpts(){
   else if(isAccountant())visible=all;
   else if(isManager())visible=all;
   else if(isBoss())visible=all.filter(s=>['voucher','boss_approved','paid','rejected','cashier_review','cash_disbursed','recall_pending'].includes(s.v));
-  else if(isCashier())visible=all.filter(s=>['cashier_review','cash_disbursed','paid','rejected'].includes(s.v));
+  else if(isCashier())visible=all.filter(s=>['pending','approved','voucher','boss_approved','cashier_review','cash_disbursed','paid','rejected'].includes(s.v));
   else if(isChiefAccountant())visible=all.filter(s=>['boss_approved','paid','rejected'].includes(s.v));
   return visible.map(s=>`<option value="${s.v}">${s.l}</option>`).join('');
 }
@@ -776,7 +776,7 @@ function buildMonth(m,year){
       <h2 style="margin-bottom:2px">Bảng tổng chi phí T${mi} 總費用表 <span id="cnt_${m}" style="font-size:10px;color:var(--g400)"></span></h2>
     </div>
     <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">
-      <button class="btn btn-sm btn-o" onclick="${isStaff()?'exportMyCSV':'exportMonthCSV'}('${m}')">📥 Xuất CSV 匯出</button>
+      <button class="btn btn-sm btn-o" onclick="${isCashier()?'exportCashierCSV':isStaff()?'exportMyCSV':'exportMonthCSV'}('${m}')">📥 Xuất CSV 匯出</button>
       <button class="btn btn-sm btn-o" onclick="const b=document.getElementById('mainTbBody_${m}');b.style.display=b.style.display==='none'?'':'none';this.textContent=b.style.display==='none'?'▸ Mở':'▾ Thu'">▾ Thu</button>
     </div>
   </div>
@@ -982,7 +982,7 @@ function buildBatchBtns(m,ctx){
   if(!isCashier()&&!isChiefAccountant())b+='<button class="btn btn-sm btn-d" onclick="batchDelete(\''+m+'\')">Xoá 刪除</button>';
   if(isStaff()||isAccountant())b+='<button class="btn btn-sm btn-p" onclick="batchSend(\''+m+'\')">Gửi duyệt 送審</button>';
   b+='<button class="btn btn-sm btn-print" onclick="batchPrint(\''+m+'\')">🖨️ In 列印</button>';
-  b+='<button class="btn btn-sm btn-o" onclick="'+(isStaff()?'exportMyCSV':'exportMonthCSV')+'(\''+m+'\')">📥 Xuất CSV 匯出</button>';
+  b+='<button class="btn btn-sm btn-o" onclick="'+(isCashier()?'exportCashierCSV':isStaff()?'exportMyCSV':'exportMonthCSV')+'(\''+m+'\')">📥 Xuất CSV 匯出</button>';
   // Queue-only buttons (not shown in main table which has completed items)
   if(ctx!=='main'){
     if(isManager()&&!isBoss())b+='<button class="btn btn-sm btn-s" onclick="batchApprove(\''+m+'\')">Duyệt 審批</button>';
@@ -1057,7 +1057,7 @@ function batchSend(m){
   const today_s=new Date().toISOString().slice(0,10);
   sel.forEach(e=>{e.status='pending';e.submitted=true;e.submittedDate=today_s;e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'sent',by:currentUser?currentUser.name:'',date:today_s,note:'Gửi duyệt (kèm nộp phiếu)'});e.selected=false;delete e._selCtx;});
   const fltEl=document.getElementById('fltSt_'+m);if(fltEl)fltEl.value='';
-  saveLog('gửi-duyệt','Gửi duyệt '+sel.length+' khoản');renderM(m);toast(`Đã gửi duyệt ${sel.length} khoản`);
+  saveData('gửi-duyệt','Gửi duyệt '+sel.length+' khoản');syncImmediate('gửi-duyệt','Gửi duyệt '+sel.length+' khoản');renderM(m);toast(`Đã gửi duyệt ${sel.length} khoản`);
 }
 function batchApprove(m){
   if(!canApprove()){toast('Không có quyền duyệt');return;}
@@ -1065,20 +1065,27 @@ function batchApprove(m){
   const today_a=new Date().toISOString().slice(0,10);
   sel.forEach(e=>{e.status='approved';e.approvedDate=today_a;e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'approved',by:currentUser?currentUser.name:'',date:today_a,note:'QL duyệt chi phí'});e.selected=false;delete e._selCtx;});
   const fltEl=document.getElementById('fltSt_'+m);if(fltEl)fltEl.value='';
-  saveData();renderM(m);toast(`Đã duyệt ${sel.length}`);
+  saveData();syncImmediate('duyệt-hàng-loạt','Duyệt '+sel.length+' khoản');renderM(m);toast(`Đã duyệt ${sel.length}`);
+}
+function submitVoucherItem(id){
+  if(!canManageVoucher())return;
+  const e=items.find(x=>x.id===id);if(!e||e.status!=='approved'){toast('Chỉ nộp CT khi đã duyệt');return;}
+  const d=prompt('Ngày nộp CT:',new Date().toISOString().slice(0,10));if(!d)return;
+  e.status='voucher';e.voucherDate=d;e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'voucher',by:currentUser?currentUser.name:'',date:d,note:'Nộp về công ty'});
+  saveData();syncImmediate('nộp-CT',e.code);rerender();toast('Đã nộp CT: '+e.code);
 }
 function batchVoucher(m){
   if(!canManageVoucher())return;
   const sel=getSel(m).filter(e=>e.status==='approved');if(!sel.length){toast('Chọn mục đã duyệt');return;}
   const d=prompt('Ngày lập phiếu:',new Date().toISOString().slice(0,10));if(!d)return;
-  sel.forEach(e=>{e.status='voucher';e.voucherDate=d;e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'voucher',by:currentUser?currentUser.name:'',date:d,note:'Nộp về công ty'});e.selected=false;delete e._selCtx;});saveData();renderM(m);toast(`Đã lập phiếu ${sel.length}`);
+  sel.forEach(e=>{e.status='voucher';e.voucherDate=d;e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'voucher',by:currentUser?currentUser.name:'',date:d,note:'Nộp về công ty'});e.selected=false;delete e._selCtx;});saveData();syncImmediate('lập-phiếu-hàng-loạt','Lập phiếu '+sel.length);renderM(m);toast(`Đã lập phiếu ${sel.length}`);
 }
 function batchPaid(m){
   if(!canPayment())return;
   const sel=getSel(m).filter(e=>e.status==='boss_approved');
   if(!sel.length){toast('Chọn mục Boss đã duyệt (CK)');return;}
   const today=new Date().toISOString().slice(0,10);
-  sel.forEach(e=>{e.status='paid';e.paidDate=today;e.paidBy=currentUser?currentUser.name:'';e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'ck_paid',by:currentUser?currentUser.name:'',date:today,note:'KT Trưởng chi tiền CK'});e.selected=false;delete e._selCtx;});saveData();renderM(m);toast(`Đã chi CK ${sel.length} khoản`);
+  sel.forEach(e=>{e.status='paid';e.paidDate=today;e.paidBy=currentUser?currentUser.name:'';e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'ck_paid',by:currentUser?currentUser.name:'',date:today,note:'KT Trưởng chi tiền CK'});e.selected=false;delete e._selCtx;});saveData();syncImmediate('chi-CK-hàng-loạt','Chi CK '+sel.length);renderM(m);toast(`Đã chi CK ${sel.length} khoản`);
 }
 
 // Boss batch approve (duyệt lệnh)
@@ -1099,7 +1106,7 @@ function batchBossApprove(m){
     else{e.status='boss_approved';ckCount++;}
     e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'boss_approve_order',by:currentUser?currentUser.name:'',date:today,note:'Boss duyệt lệnh'+(e.method==='Tiền mặt'?' → Thủ quỹ':' → KT Trưởng')});
   });
-  saveData();renderM(m);
+  saveData();syncImmediate('boss-duyệt-lệnh','Boss duyệt '+sel.length);renderM(m);
   let msg='Boss đã duyệt lệnh '+sel.length+' khoản';
   if(cashCount)msg+=' ('+cashCount+' TM → Thủ quỹ)';
   if(ckCount)msg+=' ('+ckCount+' CK → KT Trưởng)';
@@ -1120,7 +1127,7 @@ function batchBossReturn(m){
     e.paymentHistory.push({action:'boss_returned',by:currentUser?currentUser.name:'',date:today,note:'Boss trả về: '+reason.trim()});
     e.selected=false;delete e._selCtx;
   });
-  saveData();renderM(m);toast('Boss đã trả về '+sel.length+' khoản');
+  saveData();syncImmediate('boss-trả-về','Boss trả về '+sel.length);renderM(m);toast('Boss đã trả về '+sel.length+' khoản');
 }
 
 // Manager: đánh dấu đã chi trả trước cho NV
@@ -1139,7 +1146,7 @@ function batchPrepaid(m){
     e.paymentHistory.push({action:'prepaid',by:currentUser?currentUser.name:'',date:today,note:noteInput||'QL chi trả trước cho NV'});
     e.selected=false;delete e._selCtx;
   });
-  saveData();renderM(m);toast('✓ Đã chi trả trước '+sel.length+' khoản — '+currentUser.name+' ('+fmtDate(today)+')');
+  saveData();syncImmediate('chi-trả-trước','Prepaid '+sel.length);renderM(m);toast('✓ Đã chi trả trước '+sel.length+' khoản — '+currentUser.name+' ('+fmtDate(today)+')');
 }
 function prepaidItem(id){
   if(!isMgr())return;
@@ -1152,7 +1159,7 @@ function prepaidItem(id){
   e.payStatus='Đã chi';
   e.paymentHistory=(e.paymentHistory||[]);
   e.paymentHistory.push({action:'prepaid',by:currentUser?currentUser.name:'',date:today,note:noteInput||'QL chi trả trước cho NV'});
-  closeM('approveModal');saveData();rerender();toast('✓ Đã chi trả trước — '+currentUser.name+' ('+fmtDate(today)+')');
+  closeM('approveModal');saveData();syncImmediate('chi-trả-trước',e.code);rerender();toast('✓ Đã chi trả trước — '+currentUser.name+' ('+fmtDate(today)+')');
 }
 
 // Single item boss approve
@@ -1164,7 +1171,7 @@ function bossApproveItem(id){
   if(e.method==='Tiền mặt'){e.status='cashier_review';}
   else{e.status='boss_approved';}
   e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'boss_approve_order',by:currentUser?currentUser.name:'',date:td,note:'Boss duyệt lệnh'+(e.method==='Tiền mặt'?' → Thủ quỹ':' → KT Trưởng')});
-  closeM('approveModal');saveData();rerender();toast(e.method==='Tiền mặt'?'Boss duyệt → chuyển Thủ quỹ':'Boss đã duyệt lệnh ✓');
+  closeM('approveModal');saveData();syncImmediate('boss-duyệt',e.code);rerender();toast(e.method==='Tiền mặt'?'Boss duyệt → chuyển Thủ quỹ':'Boss đã duyệt lệnh ✓');
 }
 
 // ============ MARK SUBMITTED ============
@@ -1347,7 +1354,7 @@ function openApproval(id){
     const ci=e.status==='rejected'?-1:arr.indexOf(e.status);
     let cls=i<ci?'done':i===ci?'active':'';
     if(e.status==='rejected'&&s==='pending')cls='fail';
-    h+=`<span class="flow-step ${cls}">${{draft:'Nháp',pending:'Chờ duyệt',approved:'Đã duyệt',voucher:'Nộp về CT',boss_approved:'Boss duyệt',cashier_review:'Thủ quỹ KT',cash_disbursed:'Đã chi TM',paid:'Hoàn tất'}[s]}</span>`;
+    h+=`<span class="flow-step ${cls}">${{draft:'Nháp',pending:'Chờ duyệt',approved:'Chờ nộp CT',voucher:'Đã nộp CT',boss_approved:'Boss duyệt',cashier_review:'Thủ quỹ KT',cash_disbursed:'Đã chi TM',paid:'Hoàn tất'}[s]}</span>`;
   });
   if(e.status==='rejected')h+='<span class="flow-arr">→</span><span class="flow-step fail">Từ chối</span>';
   h+='</div>';
@@ -1431,10 +1438,10 @@ function openApproval(id){
   document.getElementById('approveModal').classList.add('show');
 }
 
-function chgSt(id,ns){const e=items.find(x=>x.id===id);if(!e)return;if(e.locked&&!isMgr()&&!isBoss()){toast('Đơn đã khóa 🔐');return;}e.status=ns;const td=new Date().toISOString().slice(0,10);if(ns==='pending'){e.submitted=true;e.submittedDate=td;}if(ns==='approved')e.approvedDate=td;if(ns==='draft'){e.rejectedReason='';e.approvedDate='';e.voucherDate='';e.paidDate='';}e.paymentHistory=(e.paymentHistory||[]);const actMap={pending:'sent',approved:'approved',draft:'reset'};e.paymentHistory.push({action:actMap[ns]||ns,by:currentUser?currentUser.name:'',date:td,note:ns==='approved'?'Duyệt chi phí':ns==='pending'?'Gửi duyệt (kèm nộp phiếu)':'Trả về nháp'});closeM('approveModal');saveData();rerender();toast(ns==='draft'?'Đã trả về Nháp — chỉnh sửa rồi gửi duyệt lại':STATUS[ns].l);}
-function rejectItem(id){const r=prompt('Lý do từ chối:');if(r===null)return;const e=items.find(x=>x.id===id);if(!e)return;e.status='rejected';e.rejectedReason=r;closeM('approveModal');saveLog('từ-chối',e.code+': '+r);rerender();toast('Đã từ chối');}
-function makeVoucher(id){const d=document.getElementById('vDateIn')?.value;if(!d){toast('Chọn ngày');return;}const e=items.find(x=>x.id===id);if(!e)return;e.status='voucher';e.voucherDate=d;e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'voucher',by:currentUser?currentUser.name:'',date:d,note:'Nộp về công ty'});closeM('approveModal');saveLog('lập-phiếu-chi',e.code+' '+fmtV(e.amount));rerender();toast('Đã lập phiếu');}
-function completePay(id){const e=items.find(x=>x.id===id);if(!e)return;if(e.status!=='boss_approved'){toast('Chưa đủ điều kiện chi tiền');return;}e.status='paid';e.paidDate=new Date().toISOString().slice(0,10);e.paidBy=currentUser?currentUser.name:'';e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'ck_paid',by:currentUser?currentUser.name:'',date:e.paidDate,note:'KT Trưởng đã chuyển khoản'});closeM('approveModal');saveData();rerender();toast('Đã chuyển khoản ✓');}
+function chgSt(id,ns){const e=items.find(x=>x.id===id);if(!e)return;if(e.locked&&!isMgr()&&!isBoss()){toast('Đơn đã khóa 🔐');return;}e.status=ns;const td=new Date().toISOString().slice(0,10);if(ns==='pending'){e.submitted=true;e.submittedDate=td;}if(ns==='approved')e.approvedDate=td;if(ns==='draft'){e.rejectedReason='';e.approvedDate='';e.voucherDate='';e.paidDate='';}e.paymentHistory=(e.paymentHistory||[]);const actMap={pending:'sent',approved:'approved',draft:'reset'};e.paymentHistory.push({action:actMap[ns]||ns,by:currentUser?currentUser.name:'',date:td,note:ns==='approved'?'Duyệt chi phí':ns==='pending'?'Gửi duyệt (kèm nộp phiếu)':'Trả về nháp'});closeM('approveModal');saveData();syncImmediate('chuyển-trạng-thái',(e.code||'')+' → '+ns);rerender();toast(ns==='draft'?'Đã trả về Nháp — chỉnh sửa rồi gửi duyệt lại':STATUS[ns].l);}
+function rejectItem(id){const r=prompt('Lý do từ chối:');if(r===null)return;const e=items.find(x=>x.id===id);if(!e)return;e.status='rejected';e.rejectedReason=r;closeM('approveModal');saveLog('từ-chối',e.code+': '+r);syncImmediate('từ-chối',e.code+': '+r);rerender();toast('Đã từ chối');}
+function makeVoucher(id){const d=document.getElementById('vDateIn')?.value;if(!d){toast('Chọn ngày');return;}const e=items.find(x=>x.id===id);if(!e)return;e.status='voucher';e.voucherDate=d;e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'voucher',by:currentUser?currentUser.name:'',date:d,note:'Nộp về công ty'});closeM('approveModal');saveLog('lập-phiếu-chi',e.code+' '+fmtV(e.amount));syncImmediate('lập-phiếu-chi',e.code);rerender();toast('Đã lập phiếu');}
+function completePay(id){const e=items.find(x=>x.id===id);if(!e)return;if(e.status!=='boss_approved'){toast('Chưa đủ điều kiện chi tiền');return;}e.status='paid';e.paidDate=new Date().toISOString().slice(0,10);e.paidBy=currentUser?currentUser.name:'';e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'ck_paid',by:currentUser?currentUser.name:'',date:e.paidDate,note:'KT Trưởng đã chuyển khoản'});closeM('approveModal');saveData();syncImmediate('chuyển-khoản',e.code);rerender();toast('Đã chuyển khoản ✓');}
 // KTT trả lại đơn (single)
 function kttReturnItem(id){
   const r=prompt('Lý do trả lại đơn:');if(!r||!r.trim())return;
@@ -1442,7 +1449,7 @@ function kttReturnItem(id){
   e.status='rejected';e.rejectedReason='[KTT trả lại] '+r.trim();
   e.paymentHistory=(e.paymentHistory||[]);
   e.paymentHistory.push({action:'ktt_returned',by:currentUser?currentUser.name:'',date:new Date().toISOString().slice(0,10),note:'KTT trả lại: '+r.trim()});
-  closeM('approveModal');saveData();rerender();toast('KTT đã trả lại đơn');
+  closeM('approveModal');saveData();syncImmediate('KTT-trả-lại',e.code);rerender();toast('KTT đã trả lại đơn');
 }
 // KTT batch trả lại đơn
 function batchKttReturn(m){
@@ -1458,9 +1465,9 @@ function batchKttReturn(m){
     e.paymentHistory.push({action:'ktt_returned',by:currentUser?currentUser.name:'',date:today,note:'KTT trả lại: '+reason.trim()});
     e.selected=false;delete e._selCtx;
   });
-  saveData();renderM(m);toast('KTT đã trả lại '+sel.length+' đơn');
+  saveData();syncImmediate('KTT-trả-lại-hàng-loạt','KTT trả lại '+sel.length);renderM(m);toast('KTT đã trả lại '+sel.length+' đơn');
 }
-function returnItem(id){const r=prompt('Lý do trả về:');if(!r||!r.trim())return;const e=items.find(x=>x.id===id);if(!e)return;e.status='rejected';e.rejectedReason='[Boss trả về] '+r.trim();e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'boss_returned',by:currentUser?currentUser.name:'',date:new Date().toISOString().slice(0,10),note:'Boss trả về: '+r.trim()});closeM('approveModal');saveData();rerender();toast('Đã trả về');}
+function returnItem(id){const r=prompt('Lý do trả về:');if(!r||!r.trim())return;const e=items.find(x=>x.id===id);if(!e)return;e.status='rejected';e.rejectedReason='[Boss trả về] '+r.trim();e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'boss_returned',by:currentUser?currentUser.name:'',date:new Date().toISOString().slice(0,10),note:'Boss trả về: '+r.trim()});closeM('approveModal');saveData();syncImmediate('boss-trả-về',e.code);rerender();toast('Đã trả về');}
 function confirmAdvPaid(id){if(!confirm('Xác nhận đã hoàn trả tiền tạm ứng cho nhân viên?'))return;const e=items.find(x=>x.id===id);if(!e)return;e.advPaid=true;closeM('approveModal');saveData();rerender();toast('Đã xác nhận hoàn trả');}
 
 // ============ THU HỒI (Recall) ============
@@ -1587,7 +1594,7 @@ function createCashBatch(m){
     e.paymentHistory.push({action:'cash_disbursed',by:currentUser?currentUser.name:'',date:today,note:'Đợt TT #'+batchId+' → '+staffDisplayName(recipient)});
     e.selected=false;delete e._selCtx;
   });
-  closeM('approveModal');saveData();renderM(m);
+  closeM('approveModal');saveData();syncImmediate('chi-tiền-mặt','Đợt TT #'+batchId);renderM(m);
   toast('Đợt TT #'+batchId+': '+fmtV(total)+' → '+staffDisplayName(recipient));
 }
 // Batch cashier reject (trả lại đơn hàng loạt)
@@ -1604,7 +1611,7 @@ function batchCashierReject(m){
     e.paymentHistory.push({action:'cashier_rejected',by:currentUser?currentUser.name:'',date:today,note:'TQ trả lại: '+reason.trim()});
     e.selected=false;delete e._selCtx;
   });
-  saveData();renderM(m);toast('Đã trả lại '+sel.length+' đơn');
+  saveData();syncImmediate('TQ-trả-lại','Trả lại '+sel.length);renderM(m);toast('Đã trả lại '+sel.length+' đơn');
 }
 
 // Người nhận xác nhận đã nhận tiền mặt
@@ -1614,7 +1621,7 @@ function confirmCashReceived(id){
   e.cashConfirmedBy=currentUser?currentUser.name:'';
   e.paymentHistory=(e.paymentHistory||[]);
   e.paymentHistory.push({action:'cash_confirmed',by:currentUser?currentUser.name:'',date:new Date().toISOString().slice(0,10),note:'Xác nhận đã nhận tiền mặt'});
-  closeM('approveModal');saveData();rerender();toast('Đã xác nhận nhận tiền ✓');
+  closeM('approveModal');saveData();syncImmediate('xác-nhận-nhận-tiền',e.code);rerender();toast('Đã xác nhận nhận tiền ✓');
 }
 // Confirm all items in a cash batch (Manager clicks "Đã nhận tiền" on batch card)
 function confirmBatchReceived(batchId,m){
@@ -1633,7 +1640,7 @@ function confirmBatchReceived(batchId,m){
   // Update batch record
   const allConfirmed=batch.itemIds.every(id=>{const it=items.find(x=>x.id===id);return it&&it.status==='paid';});
   if(allConfirmed){batch.status='confirmed';batch.confirmedDate=today;batch.confirmedBy=currentUser?currentUser.name:'';}
-  saveData();renderM(m);toast('Đã xác nhận nhận tiền Đợt #'+batchId+' ✓');
+  saveData();syncImmediate('xác-nhận-đợt-TT','Đợt #'+batchId);renderM(m);toast('Đã xác nhận nhận tiền Đợt #'+batchId+' ✓');
 }
 function batchConfirmCashReceived(m){
   const sel=getSel(m).filter(e=>e.status==='cash_disbursed');
@@ -1657,7 +1664,7 @@ function batchConfirmCashReceived(m){
       if(allConfirmed){batch.status='confirmed';batch.confirmedDate=today;batch.confirmedBy=currentUser?currentUser.name:'';}
     }
   });
-  saveData();renderM(m);toast('Đã xác nhận nhận '+sel.length+' khoản');
+  saveData();syncImmediate('xác-nhận-nhận-tiền-hàng-loạt','Xác nhận '+sel.length);renderM(m);toast('Đã xác nhận nhận '+sel.length+' khoản');
 }
 
 // ============ EDIT ============
@@ -1892,7 +1899,7 @@ function renderM(m){
       '<td style="font-size:10px">'+(staff?staff.name:e.staffCode)+'</td>'+
       '<td style="text-align:center">'+(e.attachments&&e.attachments.length?'<span style="font-size:11px;cursor:pointer" title="'+e.attachments.length+' file đính kèm 附件" onclick="event.stopPropagation();previewAttachments('+e.id+')">📎<span style="font-size:8px;color:var(--p);font-weight:700">'+e.attachments.length+'</span></span>':'')+'</td>'+
       '<td><span class="st '+st.c+'" onclick="event.stopPropagation();openApproval('+e.id+')">'+st.l+'</span></td>'+
-      '<td style="white-space:nowrap">'+(e.status==='draft'?'<button class="bi" title="Chỉnh sửa 編輯" onclick="event.stopPropagation();openEdit('+e.id+')">✏️</button>':'')+'<button class="bi" title="In phiếu 列印" onclick="event.stopPropagation();printItem('+e.id+')">🖨️</button><button class="bi" onclick="event.stopPropagation();openApproval('+e.id+')">👁</button></td></tr>';
+      '<td style="white-space:nowrap">'+(e.status==='draft'?'<button class="bi" title="Chỉnh sửa 編輯" onclick="event.stopPropagation();openEdit('+e.id+')">✏️</button>':'')+(e.status==='approved'&&canManageVoucher()?'<button class="bi" title="Nộp về CT 提交公司" onclick="event.stopPropagation();submitVoucherItem('+e.id+')" style="color:#7c3aed;font-size:12px">📤</button>':'')+'<button class="bi" title="In phiếu 列印" onclick="event.stopPropagation();printItem('+e.id+')">🖨️</button><button class="bi" onclick="event.stopPropagation();openApproval('+e.id+')">👁</button></td></tr>';
   };
   const _readOnlyRowFn=function(e,i){
     const ds=fmtDate(e.date);
@@ -2159,7 +2166,7 @@ function renderM(m){
       const vatIcon=e.vat==='Có'?'<span style="font-size:8px;color:var(--s);margin-left:3px" title="Có VAT">VAT</span>':'';
       const attIcon=hasAtt?'<span style="font-size:9px;margin-left:3px" title="'+e.attachments.length+' file">📎'+e.attachments.length+'</span>':'';
       const payerInfo=payerShort?'<div style="font-size:8px;color:var(--g500);margin-top:1px">'+payerShort+'</div>':'';
-      const subIcon=e.submitted?'<div style="font-size:8px;color:var(--s);margin-top:2px">✓ Đã nộp</div>':'';
+      const subIcon='';
       let mainWfDate='';
       if(e.submittedDate)mainWfDate+='<div style="font-size:8px;color:#7c3aed;margin-top:1px">Nộp: '+fmtDate(e.submittedDate)+'</div>';
       if(e.approvedDate)mainWfDate+='<div style="font-size:8px;color:#059669;margin-top:1px">Duyệt: '+fmtDate(e.approvedDate)+'</div>';
@@ -2170,7 +2177,7 @@ function renderM(m){
         <td style="font-size:10px;font-weight:500">${e.code||''}${e.locked?'<br><span style="font-size:8px;color:#1e293b;font-weight:700" title="Đã khóa bởi '+(e.lockedBy||'')+' '+fmtDate(e.lockedDate||'')+'">🔐</span>':''}${e.hidden&&isMgr()?'<br><span style="font-size:8px;color:var(--d);font-weight:600">ẨN</span>':''}</td>
         <td style="font-size:10px">${ds}${mainWfDate}</td>
         <td><span style="font-size:10px">${e.type}</span><br><span style="font-size:9px;color:var(--g400)">${e.typeCn||''}</span></td>
-        <td style="font-size:10px;max-width:280px;white-space:normal;word-break:break-word;line-height:1.4">${noteFull}${cnFull?'<br><span style="font-size:9px;color:var(--g400)">'+cnFull+'</span>':''}${remarkStr}${vatIcon}${payerInfo}${advTag}</td>
+        <td style="font-size:10px;max-width:200px;white-space:normal;word-break:break-word;line-height:1.4;overflow:hidden">${(noteFull&&noteFull.length>100?noteFull.slice(0,100)+'…':noteFull)}${cnFull?'<br><span style="font-size:9px;color:var(--g400)">'+(cnFull.length>80?cnFull.slice(0,80)+'…':cnFull)+'</span>':''}${remarkStr}${vatIcon}${payerInfo}${advTag}</td>
         <td class="amt">${fmtV(e.amount)}</td>
         <td style="font-size:9px">${!e.locked?'<select onchange="event.stopPropagation();changePayStatus('+e.id+',this.value)" style="padding:2px 4px;border:1px solid '+(e.payStatus==='Đã chi'?'rgba(5,150,105,.3)':e.payStatus==='Đã cọc'?'rgba(217,119,6,.3)':'var(--g300)')+';border-radius:4px;font-size:9px;background:'+(e.payStatus==='Đã chi'?'var(--sl)':e.payStatus==='Đã cọc'?'var(--wl)':'var(--g100)')+';color:'+(e.payStatus==='Đã chi'?'var(--s)':e.payStatus==='Đã cọc'?'var(--w)':'var(--g600)')+';cursor:pointer"><option value="Chưa chi"'+(e.payStatus==='Chưa chi'?' selected':'')+'>Chưa chi</option><option value="Đã chi"'+(e.payStatus==='Đã chi'?' selected':'')+'>Đã chi</option><option value="Đã cọc"'+(e.payStatus==='Đã cọc'?' selected':'')+'>Đã cọc</option></select>':'<span style="padding:1px 5px;border-radius:4px;background:'+(e.payStatus==='Đã chi'?'var(--sl)':e.payStatus==='Đã cọc'?'var(--wl)':'var(--g100)')+';color:'+(e.payStatus==='Đã chi'?'var(--s)':e.payStatus==='Đã cọc'?'var(--w)':'var(--g600)')+'">'+e.payStatus+' 🔐</span>'}${methodTag}${e.prepaid?'<div style="margin-top:2px;background:rgba(5,150,105,.06);color:#059669;padding:2px 5px;border-radius:4px;font-size:8px;font-weight:700;border:1px solid rgba(5,150,105,.15)">💵 QL ứng</div>':''}</td>
         <td style="font-size:10px">${staff?staff.name:e.staffCode}</td>
@@ -2245,7 +2252,8 @@ function renderTracker(m,mI){
     recall_pending:{vn:'Đang thu hồi',cn:'撤回中',ic:'↩',bg:'rgba(234,88,12,.05)',cl:'#c2410c',bd:'rgba(234,88,12,.12)'},
     advUnpaid:{vn:'NV chưa hoàn trả',cn:'員工未還預支',ic:'👤',bg:'rgba(236,72,153,.05)',cl:'#db2777',bd:'rgba(236,72,153,.15)'}
   };
-  const activeKeys=Object.keys(g).filter(k=>g[k].length>0);
+  let activeKeys=Object.keys(g).filter(k=>g[k].length>0);
+  if(isCashier())activeKeys=activeKeys.filter(k=>['cashier_review','cash_disbursed'].includes(k));
   if(!activeKeys.length){trk.innerHTML='<div style="text-align:center;color:var(--s);padding:8px;font-size:12px">Tất cả đã hoàn tất ✓</div>';return;}
 
   // Pill cards in flex-wrap grid
@@ -2392,6 +2400,34 @@ function exportCSV(){
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));a.download=`Chi_phi_Loho_${year}.csv`;a.click();toast('Đã xuất CSV');
 }
 
+// Thủ quỹ export theo form mẫu: Ngày tháng, Mã số, Người đề nghị, Số tiền 1, Kế toán, Nội dung VN, Nội dung CN
+function exportCashierCSV(m){
+  const year=getYear(),ym=year+'-'+m;
+  let mI=applyRoleFilter(items.filter(e=>e.date.startsWith(ym)));
+  // Apply filters
+  const fltType=document.getElementById('fltType_'+m)?.value||'';
+  const fltSt=document.getElementById('fltSt_'+m)?.value||'';
+  const fltPay=document.getElementById('fltPay_'+m)?.value||'';
+  const fltQ=(document.getElementById('fltQ_'+m)?.value||'').toLowerCase();
+  mI=mI.filter(e=>{
+    if(fltType&&e.type!==fltType)return false;
+    if(fltSt&&e.status!==fltSt)return false;
+    if(fltPay&&e.payStatus!==fltPay)return false;
+    if(fltQ&&!(e.type.toLowerCase().includes(fltQ)||e.note.toLowerCase().includes(fltQ)||(e.code||'').toLowerCase().includes(fltQ)))return false;
+    return true;
+  }).sort((a,b)=>a.date.localeCompare(b.date)||a.id-b.id);
+  if(!mI.length){toast('Không có dữ liệu');return;}
+  let csv='﻿"Ngày tháng","Mã số","Người đề nghị","Số tiền 1","Kế toán","Nội dung thanh toán 1","Nội dung thanh toán 2"\n';
+  mI.forEach(e=>{
+    const staff=STAFF.find(s=>s.code===e.staffCode);
+    const staffName=staff?staff.name:(e.staffCode||'');
+    const d=fmtDate(e.date);
+    csv+=`"${d}","${e.code||''}","${staffName}",${e.amount},"${e.type||''}","${(e.note||'').replace(/"/g,'""')}","${(e.noteCn||'').replace(/"/g,'""')}"\n`;
+  });
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+  a.download=`Phieu_chi_TM_T${parseInt(m)}_${year}.csv`;a.click();toast(`Đã xuất ${mI.length} phiếu`);
+}
+
 // ============ PRINT VOUCHER ============
 const LN_LOGO='ln_logo.png';
 function numToViWords(n){
@@ -2436,7 +2472,7 @@ const nUp=(e.note||'').toUpperCase();
 const nCn=e.noteCn||'';
 return '<div class="pv-page">'+
 '<img class="pvbg" src="voucher_bg.png">'+
-'<div class="pf" style="left:80%;top:15.9%;font-size:12px;font-weight:700;width:10%;text-align:center">'+(e.code||'')+'</div>'+
+'<div class="pf" style="left:80%;top:10%;font-size:12px;font-weight:700;width:10%;text-align:center">'+(e.code||'')+'</div>'+
 '<div class="pf" style="left:10.3%;top:25.2%;font-size:11px;font-weight:600;width:7%;text-align:center">'+yr+'/'+mo+'/'+dy+'</div>'+
 '<div class="pf" style="left:30.7%;top:29.7%"><div class="dig-row">'+digL+'</div></div>'+
 '<div class="pf" style="left:56.2%;top:31.3%"><div class="dig-row">'+digR+'</div></div>'+
@@ -2480,6 +2516,99 @@ let _pendingSyncData=null;
 let _sheetsLoaded=false;
 let _syncFailCount=0;
 
+// === SYNC RELIABILITY v5: Persistent queue + beforeunload + immediate sync ===
+// Track items chưa được sync thành công lên Sheets
+let _unsyncedChanges=false; // flag: có thay đổi chưa sync
+function markUnsynced(){
+  _unsyncedChanges=true;
+  try{localStorage.setItem('loho_unsynced','1');}catch(e){}
+}
+function clearUnsynced(){
+  _unsyncedChanges=false;
+  try{localStorage.removeItem('loho_unsynced');}catch(e){}
+}
+function hasUnsynced(){
+  return _unsyncedChanges||localStorage.getItem('loho_unsynced')==='1';
+}
+
+// Immediate sync — bypass debounce, dùng cho critical actions (gửi duyệt, duyệt, etc.)
+function syncImmediate(actionType,detail){
+  if(!GSHEET_API)return;
+  _lastSyncAction=actionType||'critical-action';
+  _lastSyncDetail=detail||'';
+  clearTimeout(syncTimer);
+  markUnsynced();
+  const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
+  if(isSyncing){
+    _pendingSyncData=data;
+    console.log('[SYNC] Queued immediate: đang sync, sẽ sync lại ngay sau');
+  }else{
+    syncToSheets(data);
+  }
+}
+
+// beforeunload: cố gắng sync khi user đóng tab/trình duyệt
+window.addEventListener('beforeunload',function(ev){
+  if(!GSHEET_API||!hasUnsynced())return;
+  // Dùng sendBeacon (reliable khi đóng tab) hoặc fetch keepalive
+  try{
+    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
+    const syncUser=(typeof currentUser!=='undefined'&&currentUser)?currentUser.displayName||currentUser.username||currentRole:currentRole||'unknown';
+    data._syncUser=syncUser;
+    data._syncAction='beforeunload-emergency';
+    data._syncDetail='User đóng trang — emergency sync';
+    const bodyStr=JSON.stringify(data);
+    // sendBeacon là API đáng tin nhất khi đóng tab
+    if(navigator.sendBeacon){
+      const blob=new Blob([bodyStr],{type:'text/plain'});
+      const sent=navigator.sendBeacon(GSHEET_API+'?action=save',blob);
+      console.log('[SYNC] sendBeacon on unload:',sent?'queued':'failed');
+    }else{
+      // Fallback: fetch with keepalive
+      fetch(GSHEET_API+'?action=save',{method:'POST',body:bodyStr,headers:{'Content-Type':'text/plain'},keepalive:true});
+      console.log('[SYNC] fetch keepalive on unload');
+    }
+  }catch(e){console.error('[SYNC] unload sync error:',e);}
+});
+
+// visibilitychange: sync ngay khi user chuyển tab (tab bị ẩn)
+document.addEventListener('visibilitychange',function(){
+  if(document.visibilityState==='hidden'&&GSHEET_API&&hasUnsynced()){
+    console.log('[SYNC] Tab hidden — triggering immediate sync');
+    clearTimeout(syncTimer);
+    if(!isSyncing){
+      const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
+      syncToSheets(data);
+    }
+  }
+});
+
+// Khi page load: kiểm tra có unsynced data từ lần trước không
+window.addEventListener('load',function(){
+  if(GSHEET_API&&hasUnsynced()){
+    console.log('[SYNC] Found unsynced data from previous session — auto-syncing...');
+    setTimeout(function(){
+      if(!isSyncing){
+        _lastSyncAction='recovery-sync';
+        _lastSyncDetail='Auto recovery từ session trước';
+        const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
+        syncToSheets(data);
+      }
+    },3000); // đợi 3s sau khi loadData xong
+  }
+});
+
+// Periodic check: mỗi 30s kiểm tra có unsynced data không → auto retry
+setInterval(function(){
+  if(GSHEET_API&&hasUnsynced()&&!isSyncing){
+    console.log('[SYNC] Periodic check: found unsynced data — retrying...');
+    _lastSyncAction='periodic-retry';
+    _syncRetryCount=0;
+    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
+    syncToSheets(data);
+  }
+},30000);
+
 function updateSyncUI(status,msg){
   const el=document.getElementById('syncStatus');
   if(!el)return;
@@ -2519,6 +2648,7 @@ function saveData(actionType,detail){
     }
     window._ld=json;
     // Auto sync to Google Sheets (debounce 3 giây)
+    markUnsynced(); // Đánh dấu có thay đổi chưa sync
     if(GSHEET_API){
       clearTimeout(syncTimer);
       // Nếu đang sync, queue lại (không bỏ qua)
@@ -2714,6 +2844,7 @@ async function syncToSheets(data){
       console.log('[SYNC] SUCCESS:',r.savedAt,r.itemCount,'items');
       updateSyncUI('ok','☁️ Đã lưu '+new Date().toLocaleTimeString('vi-VN'));
       _syncRetryCount=0;
+      clearUnsynced(); // Xóa flag — data đã sync thành công
       if(mergedItems.length>currentData.items.length)rerender();
     }else{
       console.error('[SYNC] Server error:',r.error);
