@@ -2034,19 +2034,29 @@ function saveEdit(){
   e.vatNum=e.vat==='Có'?document.getElementById('eVatNum').value.trim():'';
   e.note=document.getElementById('eNote').value.trim();e.noteCn=document.getElementById('eNoteCn').value.trim();e.remark=(document.getElementById('eRemark').value||'').trim();
 
-  // FIX: Khi sửa phương thức thanh toán sau khi boss đã duyệt → chuyển status đúng queue
+  // FIX v9: Khi sửa phương thức thanh toán sau khi boss đã duyệt → chuyển status đúng queue
   const oldMethod=e._prevMethod;
+  const today9=new Date().toISOString().slice(0,10);
   if(oldMethod&&oldMethod!==e.method&&['boss_approved','cashier_review'].includes(e.status)){
-    const today=new Date().toISOString().slice(0,10);
     if(e.method==='Tiền mặt'){
       e.status='cashier_review';
       e.paymentHistory=(e.paymentHistory||[]);
-      e.paymentHistory.push({action:'method_changed',by:currentUser?currentUser.name:'',date:today,note:'Đổi phương thức: '+oldMethod+' → Tiền mặt → chuyển Thủ quỹ'});
+      e.paymentHistory.push({action:'method_changed',by:currentUser?currentUser.name:'',date:today9,note:'Đổi phương thức: '+oldMethod+' → Tiền mặt → chuyển Thủ quỹ'});
     }else{
       e.status='boss_approved';
       e.paymentHistory=(e.paymentHistory||[]);
-      e.paymentHistory.push({action:'method_changed',by:currentUser?currentUser.name:'',date:today,note:'Đổi phương thức: '+oldMethod+' → Chuyển khoản → chuyển KT Trưởng'});
+      e.paymentHistory.push({action:'method_changed',by:currentUser?currentUser.name:'',date:today9,note:'Đổi phương thức: '+oldMethod+' → Chuyển khoản → chuyển KT Trưởng'});
     }
+  }
+  // FIX v9: Auto-correct nếu method và status mâu thuẫn (VD: method=TM nhưng status=boss_approved)
+  if(e.method==='Tiền mặt'&&e.status==='boss_approved'){
+    e.status='cashier_review';
+    e.paymentHistory=(e.paymentHistory||[]);
+    e.paymentHistory.push({action:'method_changed',by:currentUser?currentUser.name:'',date:today9,note:'Auto-fix: Tiền mặt phải qua Thủ quỹ (không phải KT Trưởng)'});
+  }else if(e.method!=='Tiền mặt'&&e.status==='cashier_review'){
+    e.status='boss_approved';
+    e.paymentHistory=(e.paymentHistory||[]);
+    e.paymentHistory.push({action:'method_changed',by:currentUser?currentUser.name:'',date:today9,note:'Auto-fix: Chuyển khoản phải qua KT Trưởng (không phải Thủ quỹ)'});
   }
   delete e._prevMethod;
 
@@ -3031,6 +3041,13 @@ function loadLocalData(){
       try{localStorage.setItem('loho_users',JSON.stringify(USERS));}catch(e){}
     }
     items.forEach(e=>{if(!('submitted'in e))e.submitted=false;if(!('submittedDate'in e))e.submittedDate='';if(!('remark'in e))e.remark='';if(!('hidden'in e))e.hidden=((e.type==='Lương nhân viên'||e.type==='Thưởng')&&e.staffCode==='VP001');if(e.date&&typeof e.date==='string'&&e.date.length>10)e.date=e.date.slice(0,10);if(!('paymentHistory'in e))e.paymentHistory=[];});
+    // v9: Auto-fix method/status mismatch cho tất cả items
+    let fixCount=0;
+    items.forEach(e=>{
+      if(e.method==='Tiền mặt'&&e.status==='boss_approved'){e.status='cashier_review';e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'method_changed',by:'System',date:new Date().toISOString().slice(0,10),note:'Auto-fix: TM phải qua Thủ quỹ'});fixCount++;}
+      else if(e.method&&e.method!=='Tiền mặt'&&e.status==='cashier_review'){e.status='boss_approved';e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'method_changed',by:'System',date:new Date().toISOString().slice(0,10),note:'Auto-fix: CK phải qua KT Trưởng'});fixCount++;}
+    });
+    if(fixCount){console.log('[loadLocalData] Auto-fixed',fixCount,'method/status mismatches');try{const json=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});localStorage.setItem(LS_KEY,json);}catch(se){}}
   }catch(e){console.error('loadLocalData error:',e);}
 }
 // === Load đầy đủ: local + Sheets (dùng cho saveData gọi lại) ===
@@ -3349,6 +3366,14 @@ async function loadFromSheets(){
         cashBatchNextId=Math.max(cashBatchNextId||1,r.cashBatchNextId||1,cashBatches.reduce((mx,b)=>Math.max(mx,b.id||0),0)+1);
         console.log('[LOAD] CashBatches synced:',cashBatches.length);
       }
+
+      // v9: Auto-fix method/status mismatch sau merge
+      let loadFixCount=0;
+      items.forEach(e=>{
+        if(e.method==='Tiền mặt'&&e.status==='boss_approved'){e.status='cashier_review';e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'method_changed',by:'System',date:new Date().toISOString().slice(0,10),note:'Auto-fix: TM phải qua Thủ quỹ'});loadFixCount++;}
+        else if(e.method&&e.method!=='Tiền mặt'&&e.status==='cashier_review'){e.status='boss_approved';e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'method_changed',by:'System',date:new Date().toISOString().slice(0,10),note:'Auto-fix: CK phải qua KT Trưởng'});loadFixCount++;}
+      });
+      if(loadFixCount)console.log('[LOAD] Auto-fixed',loadFixCount,'method/status mismatches');
 
       console.log('[LOAD] Merged: items local='+prevCount+' remote='+remoteItems.length+' total='+items.length+' | advances remote='+(remoteAdvances?remoteAdvances.length:0)+' total='+advances.length);
       _sheetsLoaded=true;
