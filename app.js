@@ -1596,7 +1596,7 @@ function renderAdvances(){
           <td><span class="st ${st.c}">${st.l}</span>${a.attachments&&a.attachments.length?'<br><span style="font-size:9px;color:var(--p)">📎'+a.attachments.length+'</span>':''}</td>
           <td style="white-space:nowrap">
             ${a.status==='draft'?`<button class="btn btn-sm btn-p" onclick="submitAdvance(${a.id})">Nộp</button>`:isMgr()&&a.status==='pending'?`<button class="btn btn-sm btn-s" onclick="approveAdvance(${a.id})">✓ Duyệt</button> <button class="btn btn-sm btn-d" onclick="rejectAdvance(${a.id})">✕</button>`:isMgr()&&a.status==='approved'?`<button class="btn btn-sm btn-s" onclick="confirmReturned(${a.id})">Hoàn trả ✓</button>`:a.status==='returned'?`<span style="font-size:9px;color:var(--s)">✓ ${a.returnedDate||''}</span>`:a.status==='rejected'?`<span style="font-size:9px;color:var(--d)" title="${a.rejectedReason||''}">✕ ${(a.rejectedReason||'').slice(0,15)}</span>`:''}
-            ${a.status==='approved'||a.status==='returned'?`<button class="btn btn-sm btn-print" onclick="printAdvSlip(${a.id})" title="In phiếu tạm ứng">🖨️</button>`:''}
+            <button class="btn btn-sm btn-print" onclick="printAdvSlip(${a.id})" title="In phiếu tạm ứng">🖨️</button>
             ${(!isMgr()&&a.status==='draft')||isMgr()?`<button class="btn btn-sm btn-d" onclick="deleteAdvance(${a.id})">Xoá</button>`:''}
           </td>
         </tr>`;
