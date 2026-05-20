@@ -450,9 +450,10 @@ function staffOpts(){return STAFF.map(s=>`<option value="${s.code}">${s.name} ${
 function payerOpts(){return PAYERS.map(p=>`<option value="${p}">${p}</option>`).join('')}
 
 function advLinkOpts(m){
-  // Show approved advances for the current staff (or all if manager)
-  const staffCode=isStaff()&&currentUser?currentUser.staffCode:'';
-  const approvedAdv=advances.filter(a=>a.status==='approved'&&(!staffCode||a.staffCode===staffCode));
+  // Staff: chỉ thấy TƯ của bản thân. KT bộ phận/Manager/Boss/Cashier/Chief: thấy tất cả
+  const onlySelf=currentRole==='staff';
+  const myCode=currentUser?currentUser.staffCode:'';
+  const approvedAdv=advances.filter(a=>a.status==='approved'&&(!onlySelf||a.staffCode===myCode));
   return approvedAdv.map(a=>{
     const staff=STAFF.find(s=>s.code===a.staffCode);
     const sn=staff?staff.name:a.staffCode;
@@ -475,14 +476,9 @@ function onAdvLinkChange(m){
   const linkedExp=items.filter(e=>e.advanceId===a.id);
   const used=linkedExp.reduce((s,e)=>s+e.amount,0)+(a.cashReturned||0);
   const remain=a.amount-used;
-  info.innerHTML=`<span style="color:var(--p)">Tổng TƯ: ${fmtV(a.amount)}</span> | <span style="color:var(--d)">Đã chi: ${fmtV(used)}</span> | <span style="color:#f59e0b;font-weight:600">Còn: ${fmtV(remain)}</span>`;
-  // Auto-set payer to NV tạm ứng and staffCode
-  const payerSel=document.getElementById('fPayer_'+m);
-  if(payerSel){
-    for(let i=0;i<payerSel.options.length;i++){
-      if(payerSel.options[i].value==='NV tạm ứng'){payerSel.selectedIndex=i;payerSel.dispatchEvent(new Event('change'));break;}
-    }
-  }
+  const staff=STAFF.find(s=>s.code===a.staffCode);
+  const sn=staff?staff.name:'';
+  info.innerHTML=`<span style="color:var(--s);font-weight:600">🔗 ${a.code||'TƯ'}</span> · ${sn} | Tổng: ${fmtV(a.amount)} | Đã dùng: ${fmtV(used)} | <b style="color:#f59e0b">Còn: ${fmtV(remain)}</b>`;
 }
 
 function staffDisplayName(code){const s=STAFF.find(x=>x.code===code);return s?(s.name+' '+s.cn+' ('+s.code+')'):(code||'');}
@@ -1334,9 +1330,82 @@ function rejectAdvance(id){
 function confirmReturned(id){
   if(!isMgr())return;
   const a=advances.find(x=>x.id===id);if(!a)return;
-  if(!confirm('Xác nhận hoàn trả tạm ứng?'))return;
+  const linkedExp=items.filter(e=>e.advanceId===a.id);
+  const usedAmt=linkedExp.reduce((s,e)=>s+e.amount,0);
+  const remaining=a.amount-usedAmt-(a.cashReturned||0);
+  // Custom modal thay vì confirm()
+  const modal=document.getElementById('approveModal');
+  const body=document.getElementById('amBody');
+  const staff=STAFF.find(s=>s.code===a.staffCode);
+  const sn=staff?staff.name+' '+staff.cn:a.staffCode;
+  body.innerHTML=`<h3>Xác nhận hoàn trả tạm ứng 確認歸還</h3>
+    <div style="background:rgba(5,150,105,.05);border:1px solid rgba(5,150,105,.15);border-radius:10px;padding:14px;margin-bottom:14px;font-size:12px">
+      <div><b>Mã:</b> ${a.code||'--'} | <b>Người ứng:</b> ${sn}</div>
+      <div><b>Tổng TƯ:</b> <span style="color:var(--p);font-weight:700">${fmtV(a.amount)}</span></div>
+      <div><b>Đã dùng (chi tiêu):</b> ${fmtV(usedAmt)} (${linkedExp.length} đơn)</div>
+      <div><b>Còn phải trả:</b> <span style="color:#f59e0b;font-weight:700">${fmtV(remaining)}</span></div>
+    </div>
+    <div class="fg" style="margin-bottom:10px"><label>Số tiền hoàn trả thực tế 實際歸還金額</label><input type="text" id="retAmt" value="${remaining>0?fmtV(remaining).replace(/\s/g,'').replace('đ','').trim():0}" oninput="fmtIn(this)" placeholder="Nhập số tiền hoàn trả"/></div>
+    <div class="fg" style="margin-bottom:10px"><label>Ghi chú hoàn trả 歸還備註</label><input type="text" id="retNote" placeholder="VD: NV trả thiếu 200k, sẽ trừ lương..."/></div>
+    <div class="mact">
+      <button class="btn btn-o" onclick="closeM('approveModal')">Huỷ 取消</button>
+      <button class="btn btn-s" onclick="doReturnAdvance(${a.id})">✓ Xác nhận hoàn trả</button>
+    </div>`;
+  modal.classList.add('show');
+}
+function doReturnAdvance(id){
+  const a=advances.find(x=>x.id===id);if(!a)return;
+  const amtEl=document.getElementById('retAmt');
+  const noteEl=document.getElementById('retNote');
+  const retAmt=parseAmt(amtEl?amtEl.value:'0');
+  const retNote=noteEl?noteEl.value.trim():'';
+  a.cashReturned=(a.cashReturned||0)+retAmt;
+  a.returnNote=retNote;
   a.status='returned';a.returnedDate=new Date().toISOString().slice(0,10);
-  saveData();syncImmediate('xac-nhan-hoan-tra-tam-ung',id);renderAdvances();toast('Đã xác nhận hoàn trả');
+  closeM('approveModal');
+  saveData();syncImmediate('xac-nhan-hoan-tra-tam-ung',id);renderAdvances();toast('Đã xác nhận hoàn trả '+fmtV(retAmt));
+}
+function showAdvExpenses(id){
+  const a=advances.find(x=>x.id===id);if(!a)return;
+  const linkedExp=items.filter(e=>e.advanceId===a.id);
+  const modal=document.getElementById('approveModal');
+  const body=document.getElementById('amBody');
+  const staff=STAFF.find(s=>s.code===a.staffCode);
+  const sn=staff?staff.name+' '+staff.cn:a.staffCode;
+  const usedAmt=linkedExp.reduce((s,e)=>s+e.amount,0);
+  const cashRet=a.cashReturned||0;
+  const remaining=a.amount-usedAmt-cashRet;
+  let h=`<h3>Chi tiết tạm ứng ${a.code||''} 預支明細</h3>
+    <div style="font-size:12px;margin-bottom:10px">
+      <div><b>Người ứng:</b> ${sn} | <b>Số tiền:</b> <span style="color:var(--p);font-weight:700">${fmtV(a.amount)}</span></div>
+      <div><b>Nội dung:</b> ${a.note||'--'}</div>
+    </div>`;
+  if(linkedExp.length){
+    h+=`<div style="font-size:11px;font-weight:600;margin-bottom:4px">Chi tiêu liên kết (${linkedExp.length} đơn):</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px">
+      <thead><tr><th style="text-align:left;padding:4px 6px;border-bottom:2px solid #e2e8f0">Mã</th><th style="text-align:left;padding:4px 6px;border-bottom:2px solid #e2e8f0">Nội dung</th><th style="text-align:right;padding:4px 6px;border-bottom:2px solid #e2e8f0">Số tiền</th><th style="text-align:left;padding:4px 6px;border-bottom:2px solid #e2e8f0">Ngày</th><th style="padding:4px 6px;border-bottom:2px solid #e2e8f0">TT</th></tr></thead><tbody>`;
+    linkedExp.forEach(e=>{
+      const st=STATUS[e.status]||STATUS.draft;
+      h+=`<tr style="cursor:pointer" onclick="closeM('approveModal');setTimeout(()=>openApproval(${e.id}),200)">
+        <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;color:var(--p);font-weight:600">${e.code||''}</td>
+        <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9">${(e.note||e.type||'').slice(0,25)}</td>
+        <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:600">${fmtV(e.amount)}</td>
+        <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;font-size:10px">${e.date||''}</td>
+        <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9"><span class="st ${st.c}" style="font-size:8px">${st.l}</span></td>
+      </tr>`;
+    });
+    h+=`<tr style="font-weight:700;background:rgba(99,102,241,.04)"><td colspan="2" style="padding:4px 6px">Tổng chi tiêu</td><td style="padding:4px 6px;text-align:right">${fmtV(usedAmt)}</td><td colspan="2"></td></tr></tbody></table>`;
+  }else{
+    h+=`<div style="text-align:center;color:var(--g400);padding:12px;font-size:12px">Chưa có chi tiêu liên kết</div>`;
+  }
+  h+=`<div style="display:flex;gap:12px;font-size:12px;padding:8px 0;border-top:1px solid #e2e8f0">
+    <span><b>Tiền mặt hoàn trả:</b> ${cashRet?fmtV(cashRet):'0'}</span>
+    <span><b>Còn lại:</b> <span style="color:${remaining>0?'#f59e0b':'var(--s)'};font-weight:700">${fmtV(remaining)}</span></span>
+    ${a.returnNote?'<span><b>Ghi chú:</b> '+a.returnNote+'</span>':''}
+  </div>`;
+  h+=`<div class="mact"><button class="btn btn-o" onclick="closeM('approveModal')">Đóng</button></div>`;
+  body.innerHTML=h;
+  modal.classList.add('show');
 }
 
 function submitAdvance(id){
@@ -1361,37 +1430,41 @@ function printAdvSlip(id){
   const w=window.open('','_blank','width=900,height=700');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Phiếu tạm ứng ${a.code||''}</title>
   <style>
-    @page{size:A4;margin:10mm 15mm}
-    body{font-family:'Times New Roman',serif;font-size:13px;margin:0;padding:20px;color:#000}
-    .slip{width:100%;max-width:720px;margin:0 auto;border:2px solid #000;padding:0}
-    .slip-header{text-align:center;padding:10px 0 5px;border-bottom:2px solid #000;background:#f0f0f0}
-    .slip-header h2{margin:2px 0;font-size:18px}
-    .slip-header h3{margin:2px 0;font-size:14px;font-weight:normal}
-    .slip-code{font-size:11px;color:#555;margin-top:4px}
-    .slip-body{padding:12px 16px}
-    .row{display:flex;margin:6px 0;align-items:baseline}
-    .row .label{width:220px;font-weight:bold;flex-shrink:0}
-    .row .label-cn{font-size:11px;color:#555;font-weight:normal}
-    .row .val{flex:1;border-bottom:1px dotted #999;padding-left:8px;min-height:18px}
-    .sig-row{display:flex;justify-content:space-between;text-align:center;margin-top:30px;padding:0 10px}
-    .sig-box{width:22%;font-size:12px}
-    .sig-box .sig-title{font-weight:bold;margin-bottom:4px}
-    .sig-box .sig-cn{font-size:10px;color:#555}
-    .sig-box .sig-space{height:60px}
-    .return-section{border-top:2px solid #000;margin-top:15px;padding:12px 16px}
-    .return-section h4{margin:0 0 8px;font-size:14px;text-align:center}
-    .exp-table{width:100%;border-collapse:collapse;margin:8px 0;font-size:11px}
-    .exp-table th,.exp-table td{border:1px solid #999;padding:4px 6px}
+    @page{size:A4 portrait;margin:8mm 12mm}
+    body{font-family:'Times New Roman',serif;font-size:11px;margin:0;padding:10px;color:#000}
+    .page{width:100%;max-width:720px;margin:0 auto}
+    .slip{border:1.5px solid #000;padding:0;margin-bottom:6px}
+    .slip-header{text-align:center;padding:6px 0 3px;border-bottom:1.5px solid #000;background:#f0f0f0}
+    .slip-header h2{margin:1px 0;font-size:15px}
+    .slip-header h3{margin:1px 0;font-size:11px;font-weight:normal}
+    .slip-code{font-size:9px;color:#555;margin-top:2px}
+    .slip-body{padding:6px 12px}
+    .row{display:flex;margin:3px 0;align-items:baseline}
+    .row .label{width:180px;font-weight:bold;flex-shrink:0;font-size:10px}
+    .row .label-cn{font-size:9px;color:#555;font-weight:normal}
+    .row .val{flex:1;border-bottom:1px dotted #999;padding-left:6px;min-height:14px;font-size:11px}
+    .sig-row{display:flex;justify-content:space-between;text-align:center;margin-top:12px;padding:0 6px}
+    .sig-box{width:22%;font-size:10px}
+    .sig-box .sig-title{font-weight:bold;margin-bottom:2px;font-size:10px}
+    .sig-box .sig-cn{font-size:8px;color:#555}
+    .sig-box .sig-space{height:35px}
+    .return-section{border-top:1.5px solid #000;margin-top:6px;padding:6px 12px}
+    .return-section h4{margin:0 0 4px;font-size:11px;text-align:center}
+    .exp-table{width:100%;border-collapse:collapse;margin:4px 0;font-size:9px}
+    .exp-table th,.exp-table td{border:1px solid #999;padding:2px 4px}
     .exp-table th{background:#f0f0f0;font-weight:bold}
-    .company-tag{font-size:10px;color:#888;text-align:right;margin:4px 16px}
-    hr.slip-sep{border:none;border-top:2px dashed #999;margin:20px 0}
-    @media print{.no-print{display:none!important}hr.slip-sep{page-break-after:always;border:none;margin:0}}
+    .company-tag{font-size:8px;color:#888;text-align:right;margin:2px 10px}
+    hr.slip-sep{border:none;border-top:1px dashed #999;margin:6px 0}
+    .ret-sig{display:flex;justify-content:space-around;margin-top:10px;text-align:center}
+    .ret-sig div{width:40%;font-size:10px}
+    .ret-sig .sig-space{height:30px}
+    @media print{.no-print{display:none!important}}
   </style></head><body>
-  <div class="no-print" style="text-align:center;margin-bottom:15px">
-    <button onclick="window.print()" style="padding:8px 24px;font-size:14px;cursor:pointer;background:#3b82f6;color:#fff;border:none;border-radius:6px">🖨 In phiếu 列印</button>
+  <div class="no-print" style="text-align:center;margin-bottom:10px">
+    <button onclick="window.print()" style="padding:8px 24px;font-size:14px;cursor:pointer;background:#3b82f6;color:#fff;border:none;border-radius:6px">🖨️ In phiếu</button>
     <button onclick="window.close()" style="padding:8px 16px;font-size:14px;cursor:pointer;margin-left:8px;border-radius:6px">Đóng</button>
   </div>
-
+  <div class="page">
   <!-- Bản công ty 公司留存 -->
   <div class="slip">
     <div class="company-tag">Bản lưu công ty 公司留存</div>
@@ -1419,7 +1492,7 @@ function printAdvSlip(id){
 
   <hr class="slip-sep"/>
 
-  <!-- Bản cá nhân + hoàn trả 個人+還款 -->
+  <!-- Bản cá nhân + hoàn trả -->
   <div class="slip">
     <div class="company-tag">Bản cá nhân + Hoàn trả 個人留存+還款</div>
     <div class="slip-header">
@@ -1433,14 +1506,6 @@ function printAdvSlip(id){
       <div class="row"><div class="label">LÝ DO ỨNG <span class="label-cn">借支事由</span></div><div class="val">${a.note||''} ${a.noteCn||''}</div></div>
       <div class="row"><div class="label">SỐ TIỀN ỨNG <span class="label-cn">借款金額</span></div><div class="val" style="font-weight:bold">${fmtV(a.amount)} (${amtWords})</div></div>
       <div class="row"><div class="label">NGÀY ỨNG <span class="label-cn">借款日期</span></div><div class="val">${fD(a.requestDate)}</div></div>
-      <div class="row"><div class="label">DỰ KIẾN TRẢ <span class="label-cn">預計還款日期</span></div><div class="val">${fD(a.returnDate)}</div></div>
-      <div class="row"><div class="label">PHƯƠNG THỨC TRẢ <span class="label-cn">還款方式</span></div><div class="val">${linkedExp.length?'Trừ vào chi tiêu + Tiền mặt':'Tiền mặt'}</div></div>
-    </div>
-    <div class="sig-row">
-      <div class="sig-box"><div class="sig-title">PHÊ DUYỆT</div><div class="sig-cn">核准</div><div class="sig-space"></div></div>
-      <div class="sig-box"><div class="sig-title">KẾ TOÁN</div><div class="sig-cn">會計</div><div class="sig-space"></div></div>
-      <div class="sig-box"><div class="sig-title">CHỦ QUẢN</div><div class="sig-cn">部門主管</div><div class="sig-space"></div></div>
-      <div class="sig-box"><div class="sig-title">NGƯỜI ỨNG</div><div class="sig-cn">借款人</div><div class="sig-space"></div></div>
     </div>
     <div class="return-section">
       <h4>CHI TIẾT HOÀN TRẢ 還款明細</h4>
@@ -1448,15 +1513,17 @@ function printAdvSlip(id){
         <thead><tr><th>STT</th><th>Mã chi phí</th><th>Nội dung</th><th style="text-align:right">Số tiền</th><th>Ngày</th></tr></thead>
         <tbody>${linkedExp.map((e,i)=>`<tr><td>${i+1}</td><td>${e.code||''}</td><td>${(e.note||e.type||'').slice(0,30)}</td><td style="text-align:right">${fmtV(e.amount)}</td><td>${fD(e.date)}</td></tr>`).join('')}
         <tr style="font-weight:bold"><td colspan="3">Tổng chi tiêu liên kết 關聯支出合計</td><td style="text-align:right">${fmtV(usedAmt)}</td><td></td></tr>
-        </tbody></table>`:'<p style="text-align:center;color:#999">Chưa có chi tiêu liên kết</p>'}
+        </tbody></table>`:'<p style="text-align:center;color:#999;font-size:10px">Chưa có chi tiêu liên kết</p>'}
       <div class="row"><div class="label">TIỀN MẶT HOÀN TRẢ <span class="label-cn">現金歸還</span></div><div class="val">${cashRet?fmtV(cashRet):'________________'}</div></div>
+      <div class="row"><div class="label">GHI CHÚ <span class="label-cn">備註</span></div><div class="val">${a.returnNote||'________________'}</div></div>
       <div class="row"><div class="label">CÒN LẠI <span class="label-cn">餘額</span></div><div class="val" style="font-weight:bold;color:${remaining>0?'#dc2626':'#16a34a'}">${fmtV(remaining)}</div></div>
       <div class="row"><div class="label">NGÀY HOÀN TRẢ <span class="label-cn">還款日期</span></div><div class="val">${fD(a.returnedDate)}</div></div>
-      <div style="display:flex;justify-content:space-around;margin-top:25px;text-align:center">
-        <div style="width:40%"><div style="font-weight:bold;font-size:12px">NGƯỜI NHẬN TIỀN <span style="font-size:10px;color:#555">收款人</span></div><div style="height:50px"></div></div>
-        <div style="width:40%"><div style="font-weight:bold;font-size:12px">HOÀN THÀNH PHÚC KIỂM <span style="font-size:10px;color:#555">還款完成審核</span></div><div style="height:50px"></div></div>
+      <div class="ret-sig">
+        <div><div style="font-weight:bold">NGƯỜI NHẬN TIỀN <span style="font-size:8px;color:#555">收款人</span></div><div class="sig-space"></div></div>
+        <div><div style="font-weight:bold">HOÀN THÀNH PHÚC KIỂM <span style="font-size:8px;color:#555">還款完成審核</span></div><div class="sig-space"></div></div>
       </div>
     </div>
+  </div>
   </div>
   </body></html>`);
   w.document.close();
@@ -1506,23 +1573,25 @@ function renderAdvances(){
         const staff=STAFF.find(s=>s.code===a.staffCode);
         const sn=staff?staff.name+' '+staff.cn:a.staffCode;
         const reqD=fmtDate(a.requestDate);
-        const retD=a.returnDate?fmtDate(a.returnDate):'--';
         const st=STATUS[a.status]||{l:a.status,c:'st-draft'};
         const linkedExp=items.filter(e=>e.advanceId===a.id);
         const usedAmt=linkedExp.reduce((s,e)=>s+e.amount,0)+(a.cashReturned||0);
         const remaining=a.amount-usedAmt;
+        // Linked expense codes (clickable)
+        const expCodes=linkedExp.slice(0,3).map(e=>`<a href="javascript:void(0)" onclick="openApproval(${e.id})" style="color:var(--p);font-size:9px;text-decoration:underline;cursor:pointer">${e.code||'?'}</a>`).join(', ');
+        const expMore=linkedExp.length>3?`<span style="font-size:9px;color:var(--g400)"> +${linkedExp.length-3}</span>`:'';
         return `<tr>
           <td style="text-align:center;color:var(--g400);font-size:10px">${i+1}</td>
-          <td style="font-size:10px;font-weight:600;color:var(--p)">${a.code||'--'}</td>
+          <td style="font-size:10px;font-weight:600;color:var(--p);cursor:pointer" onclick="showAdvExpenses(${a.id})">${a.code||'--'}</td>
           <td style="font-size:11px">${sn}</td>
-          <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;font-size:11px" title="${(a.note||'')+'\n'+(a.noteCn||'')}">${a.note?(a.note.length>20?a.note.slice(0,20)+'...':a.note):''}</td>
+          <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;font-size:11px" title="${(a.note||'')+'\n'+(a.noteCn||'')}">${a.note?(a.note.length>20?a.note.slice(0,20)+'...':a.note):''}${linkedExp.length?'<br>'+expCodes+expMore:''}</td>
           <td class="amt">${fmtV(a.amount)}${usedAmt?'<br><span style="font-size:9px;color:var(--d)">-'+fmtV(usedAmt)+'</span>':''}</td>
           <td class="amt" style="color:${remaining>0?'#f59e0b':'var(--s)'};font-weight:600">${fmtV(remaining)}</td>
           <td style="font-size:10px">${reqD}${a.returnDate?'<br><span style="color:var(--g400)">→'+fmtDate(a.returnDate)+'</span>':''}</td>
           <td><span class="st ${st.c}">${st.l}</span>${a.attachments&&a.attachments.length?'<br><span style="font-size:9px;color:var(--p)">📎'+a.attachments.length+'</span>':''}</td>
           <td style="white-space:nowrap">
             ${a.status==='draft'?`<button class="btn btn-sm btn-p" onclick="submitAdvance(${a.id})">Nộp</button>`:isMgr()&&a.status==='pending'?`<button class="btn btn-sm btn-s" onclick="approveAdvance(${a.id})">✓ Duyệt</button> <button class="btn btn-sm btn-d" onclick="rejectAdvance(${a.id})">✕</button>`:isMgr()&&a.status==='approved'?`<button class="btn btn-sm btn-s" onclick="confirmReturned(${a.id})">Hoàn trả ✓</button>`:a.status==='returned'?`<span style="font-size:9px;color:var(--s)">✓ ${a.returnedDate||''}</span>`:a.status==='rejected'?`<span style="font-size:9px;color:var(--d)" title="${a.rejectedReason||''}">✕ ${(a.rejectedReason||'').slice(0,15)}</span>`:''}
-            ${a.status==='approved'||a.status==='returned'?`<button class="btn btn-sm btn-o" onclick="printAdvSlip(${a.id})" title="In phiếu">🖨</button>`:''}
+            ${a.status==='approved'||a.status==='returned'?`<button class="btn btn-sm btn-print" onclick="printAdvSlip(${a.id})" title="In phiếu tạm ứng">🖨️</button>`:''}
             ${!isMgr()&&a.status==='draft'?`<button class="btn btn-sm btn-d" onclick="deleteAdvance(${a.id})">Xoá</button>`:''}
           </td>
         </tr>`;
