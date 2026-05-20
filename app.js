@@ -116,10 +116,15 @@ async function enterApp(){
       });
     }
   },0);
-  // AWAIT loadData để đảm bảo Sheets data loaded trước khi user thao tác
-  await loadData();
+  // Step 1: Load dữ liệu cục bộ (nhanh) → hiển thị giao diện ngay lập tức
+  loadLocalData();
   cleanTestData();
   rebuildTabs();
+  // Step 2: Đồng bộ Sheets ở background → tự re-render khi xong (loadFromSheets gọi rerender)
+  if(GSHEET_API){
+    updateSyncUI('sync','⏳ Đang đồng bộ...');
+    loadFromSheets().catch(e=>console.warn('Background sync error:',e));
+  }
 }
 function openChangePw(){
   document.getElementById('pwOld').value='';
@@ -143,6 +148,7 @@ function doChangePw(){
   const idx=USERS.findIndex(u=>u.username===currentUser.username);
   if(idx>=0)USERS[idx].password=nw;
   localStorage.setItem('loho_users',JSON.stringify(USERS));
+  syncImmediate('change-pw',currentUser.username); // v6: đồng bộ mật khẩu mới
   closeM('pwModal');toast('Đổi mật khẩu thành công ✓');
 }
 function doLogout(){
@@ -443,6 +449,42 @@ function catOpts(){return CATS.map(c=>`<option value="${c.vn}">${c.vn} ${c.cn}</
 function staffOpts(){return STAFF.map(s=>`<option value="${s.code}">${s.name} ${s.cn} (${s.code})</option>`).join('')}
 function payerOpts(){return PAYERS.map(p=>`<option value="${p}">${p}</option>`).join('')}
 
+function advLinkOpts(m){
+  // Show approved advances for the current staff (or all if manager)
+  const staffCode=isStaff()&&currentUser?currentUser.staffCode:'';
+  const approvedAdv=advances.filter(a=>a.status==='approved'&&(!staffCode||a.staffCode===staffCode));
+  return approvedAdv.map(a=>{
+    const staff=STAFF.find(s=>s.code===a.staffCode);
+    const sn=staff?staff.name:a.staffCode;
+    const linkedExp=items.filter(e=>e.advanceId===a.id);
+    const used=linkedExp.reduce((s,e)=>s+e.amount,0)+(a.cashReturned||0);
+    const remain=a.amount-used;
+    if(remain<=0)return '';
+    return `<option value="${a.id}">${a.code||'TU?'} - ${sn} - Còn: ${fmtV(remain)}</option>`;
+  }).join('');
+}
+
+function onAdvLinkChange(m){
+  const sel=document.getElementById('fAdvLink_'+m);
+  const info=document.getElementById('fAdvLinkInfo_'+m);
+  if(!sel||!info)return;
+  const advId=parseInt(sel.value);
+  if(!advId){info.innerHTML='';return;}
+  const a=advances.find(x=>x.id===advId);
+  if(!a){info.innerHTML='';return;}
+  const linkedExp=items.filter(e=>e.advanceId===a.id);
+  const used=linkedExp.reduce((s,e)=>s+e.amount,0)+(a.cashReturned||0);
+  const remain=a.amount-used;
+  info.innerHTML=`<span style="color:var(--p)">Tổng TƯ: ${fmtV(a.amount)}</span> | <span style="color:var(--d)">Đã chi: ${fmtV(used)}</span> | <span style="color:#f59e0b;font-weight:600">Còn: ${fmtV(remain)}</span>`;
+  // Auto-set payer to NV tạm ứng and staffCode
+  const payerSel=document.getElementById('fPayer_'+m);
+  if(payerSel){
+    for(let i=0;i<payerSel.options.length;i++){
+      if(payerSel.options[i].value==='NV tạm ứng'){payerSel.selectedIndex=i;payerSel.dispatchEvent(new Event('change'));break;}
+    }
+  }
+}
+
 function staffDisplayName(code){const s=STAFF.find(x=>x.code===code);return s?(s.name+' '+s.cn+' ('+s.code+')'):(code||'');}
 function genCode(m){
   // v5 fix: Tìm số thứ tự cao nhất từ MÃ CODE hiện có (không đếm items)
@@ -472,6 +514,8 @@ function resetForm(m,fileInput){
   document.getElementById('fAdvAmtRow_'+m).style.display='none';
   const advS=document.getElementById('fAdvStaff_'+m);if(advS)advS.selectedIndex=0;
   const advA=document.getElementById('fAdvAmt_'+m);if(advA)advA.value='';
+  const advLink=document.getElementById('fAdvLink_'+m);if(advLink)advLink.selectedIndex=0;
+  const advLinkInfo=document.getElementById('fAdvLinkInfo_'+m);if(advLinkInfo)advLinkInfo.innerHTML='';
   document.getElementById('fMethod_'+m).selectedIndex=0;
   document.getElementById('fVat_'+m).selectedIndex=0;
   document.getElementById('fVatNumRow_'+m).style.display='none';
@@ -501,6 +545,7 @@ function buildFormCard(m,mi){
       '<div class="fg" id="fAdvAmtRow_'+m+'" style="display:none"><label>Số tiền tạm ứng</label><input type="text" id="fAdvAmt_'+m+'" placeholder="Số tiền" oninput="fmtIn(this)"/></div>'+
     '</div>'+
     '<div class="frow">'+
+      '<div class="fg"><label>Liên kết tạm ứng<span class="cn"> 關聯預支</span></label><select id="fAdvLink_'+m+'" onchange="onAdvLinkChange(\''+m+'\')"><option value="">-- Không liên kết --</option>'+advLinkOpts(m)+'</select><div id="fAdvLinkInfo_'+m+'" style="font-size:10px;color:var(--g500);margin-top:2px"></div></div>'+
       '<div class="fg"><label>Phương thức</label><select id="fMethod_'+m+'"><option value="Tiền mặt">Tiền mặt</option><option value="Chuyển khoản">Chuyển khoản</option></select></div>'+
       '<div class="fg"><label>Hóa đơn VAT<span class="cn"> 發票</span></label><select id="fVat_'+m+'"><option value="Không">Không</option><option value="Có">Có</option></select></div>'+
       '<div class="fg" id="fVatNumRow_'+m+'" style="display:none"><label>Số HĐ VAT</label><input type="text" id="fVatNum_'+m+'"/></div>'+
@@ -835,9 +880,33 @@ function buildMonth(m,year){
 }
 
 // ============ ADVANCE PAYMENT ============
+function genAdvCode(){
+  const now=new Date();
+  const yy=String(now.getFullYear()).slice(2);
+  const mm=String(now.getMonth()+1).padStart(2,'0');
+  const prefix='TU'+yy+mm;
+  let maxNum=0;
+  advances.forEach(a=>{
+    const code=a.code||'';
+    if(code.startsWith(prefix)){
+      const num=parseInt(code.slice(prefix.length),10);
+      if(!isNaN(num)&&num>maxNum)maxNum=num;
+    }
+  });
+  return prefix+String(maxNum+1).padStart(2,'0');
+}
+
+function toggleAdvForm(){
+  const body=document.getElementById('advFormBody');
+  const btn=document.getElementById('advFormToggleBtn');
+  if(!body)return;
+  if(body.style.display==='none'){body.style.display='';btn.textContent='▼ Ẩn 隱藏';}
+  else{body.style.display='none';btn.textContent='▲ Mở 展開';}
+}
+
 function buildAdvances(){
   return `
-  <div class="cd"><div class="cd-h"><h2>Đề xuất tạm ứng<span class="cn"> 員工預支申請</span></h2></div><div class="cd-b">
+  <div class="cd"><div class="cd-h" style="cursor:pointer" onclick="toggleAdvForm()"><h2>Đề xuất tạm ứng<span class="cn"> 員工預支申請</span></h2><button class="btn btn-sm btn-o" id="advFormToggleBtn" type="button" style="pointer-events:none">▼ Ẩn 隱藏</button></div><div class="cd-b" id="advFormBody">
     <div class="frow">
       <div class="fg"><label>Người nộp<span class="cn"> 申請人</span></label>${isStaff()&&currentUser.staffCode?'<input type="text" value="'+staffDisplayName(currentUser.staffCode)+'" readonly style="background:var(--g100);cursor:not-allowed;font-weight:600"/><input type="hidden" id="advStaff" value="'+currentUser.staffCode+'"/>':'<select id="advStaff"><option value="">-- Chọn --</option>'+staffOpts()+'</select>'}</div>
       <div class="fg"><label>Số tiền<span class="cn"> 金額</span></label><input type="text" id="advAmt" placeholder="1,500,000" oninput="fmtIn(this)"/></div>
@@ -859,7 +928,7 @@ function buildAdvances(){
   <div class="cd"><div class="cd-h"><h2>Danh sách tạm ứng<span class="cn"> 預支列表</span></h2></div>
   <div style="overflow-x:auto">
     <table><thead><tr>
-      <th>STT 序號</th><th>Người nộp 申請人</th><th>Nội dung 說明</th><th style="text-align:right">Số tiền 金額</th><th>Ngày TƯ 申請日</th><th>Ngày hoàn trả 歸還日</th><th>Đính kèm 附件</th><th>Trạng thái 狀態</th><th>Thao tác 操作</th>
+      <th>STT</th><th>Mã số</th><th>Người nộp 申請人</th><th>Nội dung</th><th style="text-align:right">Số tiền</th><th style="text-align:right">Còn lại</th><th>Ngày</th><th>Trạng thái</th><th>Thao tác 操作</th>
     </tr></thead><tbody id="advTb"></tbody></table>
   </div>
   <div id="advEmpty" class="empty" style="display:none">Chưa có đơn tạm ứng</div>
@@ -896,18 +965,31 @@ async function addItem(m){
   const fileInput=document.getElementById('fFile_'+m);
   const att=await readAllFiles(fileInput);
 
+  // Advance link
+  const advLinkSel=document.getElementById('fAdvLink_'+m);
+  const advanceId=advLinkSel&&advLinkSel.value?parseInt(advLinkSel.value):null;
+  if(advanceId){
+    const linkedAdv=advances.find(x=>x.id===advanceId);
+    if(linkedAdv){
+      const alreadyUsed=items.filter(e=>e.advanceId===advanceId).reduce((s,e)=>s+e.amount,0)+(linkedAdv.cashReturned||0);
+      const remain=linkedAdv.amount-alreadyUsed;
+      if(amount>remain){toast('Số tiền ('+fmtV(amount)+') vượt quá số dư tạm ứng còn lại ('+fmtV(remain)+')');return;}
+    }
+  }
+
   const cat=CATS.find(c=>c.vn===type);
   // v5: ID = timestamp-based để tránh trùng giữa các trình duyệt
   const newId=Date.now()+Math.floor(Math.random()*1000);
   if(newId>=nextId)nextId=newId+1;
   items.push({id:newId,date,code:genCode(m),type,typeCn:cat?cat.cn:'',amount,payStatus,staffCode,payer,advStaff,advAmt,advPaid:false,method,note,noteCn,vat,vatNum,remark,attachments:att,
+    advanceId:advanceId||null,
     status:'draft',approvedDate:'',voucherDate:'',paidDate:'',rejectedReason:'',selected:false,submitted:false,submittedDate:'',
     createdByManager:isMgr()||false,createdByAccountant:isAccountant()||false,prepaid:false,prepaidBy:'',prepaidDate:'',hidden:false,locked:false,lockedBy:'',lockedDate:''});
 
   // RESET form completely
   resetForm(m,fileInput);
 
-  saveLog('thêm-chi-phí',type+' '+fmtV(amount));renderM(m);toast('Đã thêm 已新增');
+  saveLog('thêm-chi-phí',type+' '+fmtV(amount));syncImmediate('thêm-chi-phí',type+' '+fmtV(amount));renderM(m);toast('Đã thêm 已新增');
 }
 
 function deleteItem(id){
@@ -917,7 +999,7 @@ function deleteItem(id){
   if(!isMgr()&&e.status!=='draft'){toast('Chỉ xoá được khoản ở trạng thái Nháp. Dùng "Thu hồi" nếu cần chỉnh sửa');return;}
   if(!confirm('Xoá?'))return;
   _deletedIds.add(id);saveDeletedIds();
-  items=items.filter(x=>x.id!==id);saveLog('xóa-chi-phí',e.code+' '+e.type);rerender();toast('Đã xoá');
+  items=items.filter(x=>x.id!==id);saveLog('xóa-chi-phí',e.code+' '+e.type);syncImmediate('xoa-chi-phi',e.code);rerender();toast('Đã xoá');
 }
 
 // ============ BATCH ============
@@ -1200,7 +1282,7 @@ function markSubmitted(id){
   e.status='pending';
   e.paymentHistory=(e.paymentHistory||[]);
   e.paymentHistory.push({action:'submitted',by:currentUser?currentUser.name:'',date:today,note:'Nộp phiếu — chuyển sang chờ QL duyệt'});
-  closeM('approveModal');saveLog('nộp-phiếu',e.code+' '+fmtV(e.amount));rerender();toast('Đã nộp phiếu — chuyển sang Chờ QL duyệt');
+  closeM('approveModal');saveLog('nộp-phiếu',e.code+' '+fmtV(e.amount));syncImmediate('nop-phieu',e.code);rerender();toast('Đã nộp phiếu — chuyển sang Chờ QL duyệt');
 }
 
 // ============ ADVANCE PAYMENT FUNCTIONS ============
@@ -1218,8 +1300,8 @@ async function addAdvance(){
   if(!amt){toast('Nhập số tiền');return;}
   if(!reqDate){toast('Chọn ngày tạm ứng');return;}
 
-  advances.push({id:advNextId++,staffCode:staff,note,noteCn,amount:amt,requestDate:reqDate,returnDate:retDate||'',attachments:att,
-    status:'draft',approvedDate:'',returnedDate:'',rejectedReason:'',selected:false});
+  advances.push({id:advNextId++,code:genAdvCode(),staffCode:staff,note,noteCn,amount:amt,requestDate:reqDate,returnDate:retDate||'',attachments:att,
+    status:'draft',approvedDate:'',returnedDate:'',rejectedReason:'',selected:false,cashReturned:0,returnNote:''});
 
   document.getElementById('advStaff').value='';
   document.getElementById('advAmt').value='';
@@ -1229,16 +1311,16 @@ async function addAdvance(){
   document.getElementById('advNoteCn').value='';
   fileInput.value='';
 
-  saveData();renderAdvances();toast('Đã nộp đơn tạm ứng');
+  saveData();syncImmediate('them-tam-ung',staff+' '+fmtV(amt));renderAdvances();toast('Đã nộp đơn tạm ứng');
 }
 
-function deleteAdvance(id){if(!confirm('Xoá đơn tạm ứng?'))return;advances=advances.filter(e=>e.id!==id);saveData();renderAdvances();toast('Đã xoá');}
+function deleteAdvance(id){if(!confirm('Xoá đơn tạm ứng?'))return;advances=advances.filter(e=>e.id!==id);saveData();syncImmediate('xoa-tam-ung',id);renderAdvances();toast('Đã xoá');}
 
 function approveAdvance(id){
   if(!isMgr())return;
   const a=advances.find(x=>x.id===id);if(!a)return;
   a.status='approved';a.approvedDate=new Date().toISOString().slice(0,10);
-  saveData();renderAdvances();toast('Đã duyệt');
+  saveData();syncImmediate('duyet-tam-ung',id);renderAdvances();toast('Đã duyệt');
 }
 
 function rejectAdvance(id){
@@ -1246,7 +1328,7 @@ function rejectAdvance(id){
   const a=advances.find(x=>x.id===id);if(!a)return;
   const reason=prompt('Lý do từ chối:');if(!reason)return;
   a.status='rejected';a.rejectedReason=reason;
-  saveData();renderAdvances();toast('Đã từ chối');
+  saveData();syncImmediate('tu-choi-tam-ung',id);renderAdvances();toast('Đã từ chối');
 }
 
 function confirmReturned(id){
@@ -1254,14 +1336,155 @@ function confirmReturned(id){
   const a=advances.find(x=>x.id===id);if(!a)return;
   if(!confirm('Xác nhận hoàn trả tạm ứng?'))return;
   a.status='returned';a.returnedDate=new Date().toISOString().slice(0,10);
-  saveData();renderAdvances();toast('Đã xác nhận hoàn trả');
+  saveData();syncImmediate('xac-nhan-hoan-tra-tam-ung',id);renderAdvances();toast('Đã xác nhận hoàn trả');
 }
 
 function submitAdvance(id){
   const a=advances.find(x=>x.id===id);if(!a)return;
   if(a.status!=='draft'){toast('Chỉ có thể nộp từ trạng thái nháp');return;}
   a.status='pending';
-  saveData();renderAdvances();toast('Đã nộp đơn');
+  saveData();syncImmediate('nop-tam-ung',id);renderAdvances();toast('Đã nộp đơn');
+}
+
+function printAdvSlip(id){
+  const a=advances.find(x=>x.id===id);if(!a){toast('Không tìm thấy đơn');return;}
+  const staff=STAFF.find(s=>s.code===a.staffCode);
+  const sn=staff?staff.name:'';
+  const snCn=staff?staff.cn:'';
+  const linkedExp=items.filter(e=>e.advanceId===a.id);
+  const usedAmt=linkedExp.reduce((s,e)=>s+e.amount,0);
+  const cashRet=a.cashReturned||0;
+  const remaining=a.amount-usedAmt-cashRet;
+  const fD=d=>{if(!d)return'____/____/______';const p=d.split('-');return p[2]+'/'+p[1]+'/'+p[0];};
+  const amtWords=numberToVietnameseWords(a.amount);
+
+  const w=window.open('','_blank','width=900,height=700');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Phiếu tạm ứng ${a.code||''}</title>
+  <style>
+    @page{size:A4;margin:10mm 15mm}
+    body{font-family:'Times New Roman',serif;font-size:13px;margin:0;padding:20px;color:#000}
+    .slip{width:100%;max-width:720px;margin:0 auto;border:2px solid #000;padding:0}
+    .slip-header{text-align:center;padding:10px 0 5px;border-bottom:2px solid #000;background:#f0f0f0}
+    .slip-header h2{margin:2px 0;font-size:18px}
+    .slip-header h3{margin:2px 0;font-size:14px;font-weight:normal}
+    .slip-code{font-size:11px;color:#555;margin-top:4px}
+    .slip-body{padding:12px 16px}
+    .row{display:flex;margin:6px 0;align-items:baseline}
+    .row .label{width:220px;font-weight:bold;flex-shrink:0}
+    .row .label-cn{font-size:11px;color:#555;font-weight:normal}
+    .row .val{flex:1;border-bottom:1px dotted #999;padding-left:8px;min-height:18px}
+    .sig-row{display:flex;justify-content:space-between;text-align:center;margin-top:30px;padding:0 10px}
+    .sig-box{width:22%;font-size:12px}
+    .sig-box .sig-title{font-weight:bold;margin-bottom:4px}
+    .sig-box .sig-cn{font-size:10px;color:#555}
+    .sig-box .sig-space{height:60px}
+    .return-section{border-top:2px solid #000;margin-top:15px;padding:12px 16px}
+    .return-section h4{margin:0 0 8px;font-size:14px;text-align:center}
+    .exp-table{width:100%;border-collapse:collapse;margin:8px 0;font-size:11px}
+    .exp-table th,.exp-table td{border:1px solid #999;padding:4px 6px}
+    .exp-table th{background:#f0f0f0;font-weight:bold}
+    .company-tag{font-size:10px;color:#888;text-align:right;margin:4px 16px}
+    hr.slip-sep{border:none;border-top:2px dashed #999;margin:20px 0}
+    @media print{.no-print{display:none!important}hr.slip-sep{page-break-after:always;border:none;margin:0}}
+  </style></head><body>
+  <div class="no-print" style="text-align:center;margin-bottom:15px">
+    <button onclick="window.print()" style="padding:8px 24px;font-size:14px;cursor:pointer;background:#3b82f6;color:#fff;border:none;border-radius:6px">🖨 In phiếu 列印</button>
+    <button onclick="window.close()" style="padding:8px 16px;font-size:14px;cursor:pointer;margin-left:8px;border-radius:6px">Đóng</button>
+  </div>
+
+  <!-- Bản công ty 公司留存 -->
+  <div class="slip">
+    <div class="company-tag">Bản lưu công ty 公司留存</div>
+    <div class="slip-header">
+      <h2>借支單 / PHIẾU TẠM ỨNG TIỀN</h2>
+      <h3>ADVANCE PAYMENT SLIP</h3>
+      <div class="slip-code">Mã: ${a.code||'--'}</div>
+    </div>
+    <div class="slip-body">
+      <div class="row"><div class="label">HỌ TÊN <span class="label-cn">借款人姓名</span></div><div class="val">${sn} ${snCn}</div></div>
+      <div class="row"><div class="label">MÃ SỐ NV <span class="label-cn">工號</span></div><div class="val">${a.staffCode||''}</div></div>
+      <div class="row"><div class="label">LÝ DO ỨNG <span class="label-cn">借支事由</span></div><div class="val">${a.note||''} ${a.noteCn||''}</div></div>
+      <div class="row"><div class="label">SỐ TIỀN ỨNG <span class="label-cn">借款金額</span></div><div class="val" style="font-weight:bold">${fmtV(a.amount)} (${amtWords})</div></div>
+      <div class="row"><div class="label">NGÀY ỨNG <span class="label-cn">借款日期</span></div><div class="val">${fD(a.requestDate)}</div></div>
+      <div class="row"><div class="label">DỰ KIẾN TRẢ <span class="label-cn">預計還款日期</span></div><div class="val">${fD(a.returnDate)}</div></div>
+      <div class="row"><div class="label">PHƯƠNG THỨC TRẢ <span class="label-cn">還款方式</span></div><div class="val">${linkedExp.length?'Trừ vào chi tiêu + Tiền mặt':'Tiền mặt'}</div></div>
+    </div>
+    <div class="sig-row">
+      <div class="sig-box"><div class="sig-title">PHÊ DUYỆT</div><div class="sig-cn">核准</div><div class="sig-space"></div></div>
+      <div class="sig-box"><div class="sig-title">KẾ TOÁN</div><div class="sig-cn">會計</div><div class="sig-space"></div></div>
+      <div class="sig-box"><div class="sig-title">CHỦ QUẢN</div><div class="sig-cn">部門主管</div><div class="sig-space"></div></div>
+      <div class="sig-box"><div class="sig-title">NGƯỜI ỨNG</div><div class="sig-cn">借款人</div><div class="sig-space"></div></div>
+    </div>
+  </div>
+
+  <hr class="slip-sep"/>
+
+  <!-- Bản cá nhân + hoàn trả 個人+還款 -->
+  <div class="slip">
+    <div class="company-tag">Bản cá nhân + Hoàn trả 個人留存+還款</div>
+    <div class="slip-header">
+      <h2>借支單 / PHIẾU TẠM ỨNG TIỀN</h2>
+      <h3>ADVANCE PAYMENT SLIP</h3>
+      <div class="slip-code">Mã: ${a.code||'--'}</div>
+    </div>
+    <div class="slip-body">
+      <div class="row"><div class="label">HỌ TÊN <span class="label-cn">借款人姓名</span></div><div class="val">${sn} ${snCn}</div></div>
+      <div class="row"><div class="label">MÃ SỐ NV <span class="label-cn">工號</span></div><div class="val">${a.staffCode||''}</div></div>
+      <div class="row"><div class="label">LÝ DO ỨNG <span class="label-cn">借支事由</span></div><div class="val">${a.note||''} ${a.noteCn||''}</div></div>
+      <div class="row"><div class="label">SỐ TIỀN ỨNG <span class="label-cn">借款金額</span></div><div class="val" style="font-weight:bold">${fmtV(a.amount)} (${amtWords})</div></div>
+      <div class="row"><div class="label">NGÀY ỨNG <span class="label-cn">借款日期</span></div><div class="val">${fD(a.requestDate)}</div></div>
+      <div class="row"><div class="label">DỰ KIẾN TRẢ <span class="label-cn">預計還款日期</span></div><div class="val">${fD(a.returnDate)}</div></div>
+      <div class="row"><div class="label">PHƯƠNG THỨC TRẢ <span class="label-cn">還款方式</span></div><div class="val">${linkedExp.length?'Trừ vào chi tiêu + Tiền mặt':'Tiền mặt'}</div></div>
+    </div>
+    <div class="sig-row">
+      <div class="sig-box"><div class="sig-title">PHÊ DUYỆT</div><div class="sig-cn">核准</div><div class="sig-space"></div></div>
+      <div class="sig-box"><div class="sig-title">KẾ TOÁN</div><div class="sig-cn">會計</div><div class="sig-space"></div></div>
+      <div class="sig-box"><div class="sig-title">CHỦ QUẢN</div><div class="sig-cn">部門主管</div><div class="sig-space"></div></div>
+      <div class="sig-box"><div class="sig-title">NGƯỜI ỨNG</div><div class="sig-cn">借款人</div><div class="sig-space"></div></div>
+    </div>
+    <div class="return-section">
+      <h4>CHI TIẾT HOÀN TRẢ 還款明細</h4>
+      ${linkedExp.length?`<table class="exp-table">
+        <thead><tr><th>STT</th><th>Mã chi phí</th><th>Nội dung</th><th style="text-align:right">Số tiền</th><th>Ngày</th></tr></thead>
+        <tbody>${linkedExp.map((e,i)=>`<tr><td>${i+1}</td><td>${e.code||''}</td><td>${(e.note||e.type||'').slice(0,30)}</td><td style="text-align:right">${fmtV(e.amount)}</td><td>${fD(e.date)}</td></tr>`).join('')}
+        <tr style="font-weight:bold"><td colspan="3">Tổng chi tiêu liên kết 關聯支出合計</td><td style="text-align:right">${fmtV(usedAmt)}</td><td></td></tr>
+        </tbody></table>`:'<p style="text-align:center;color:#999">Chưa có chi tiêu liên kết</p>'}
+      <div class="row"><div class="label">TIỀN MẶT HOÀN TRẢ <span class="label-cn">現金歸還</span></div><div class="val">${cashRet?fmtV(cashRet):'________________'}</div></div>
+      <div class="row"><div class="label">CÒN LẠI <span class="label-cn">餘額</span></div><div class="val" style="font-weight:bold;color:${remaining>0?'#dc2626':'#16a34a'}">${fmtV(remaining)}</div></div>
+      <div class="row"><div class="label">NGÀY HOÀN TRẢ <span class="label-cn">還款日期</span></div><div class="val">${fD(a.returnedDate)}</div></div>
+      <div style="display:flex;justify-content:space-around;margin-top:25px;text-align:center">
+        <div style="width:40%"><div style="font-weight:bold;font-size:12px">NGƯỜI NHẬN TIỀN <span style="font-size:10px;color:#555">收款人</span></div><div style="height:50px"></div></div>
+        <div style="width:40%"><div style="font-weight:bold;font-size:12px">HOÀN THÀNH PHÚC KIỂM <span style="font-size:10px;color:#555">還款完成審核</span></div><div style="height:50px"></div></div>
+      </div>
+    </div>
+  </div>
+  </body></html>`);
+  w.document.close();
+}
+
+function numberToVietnameseWords(n){
+  if(!n||n===0)return 'không đồng';
+  const units=['','nghìn','triệu','tỷ'];
+  const digits=['không','một','hai','ba','bốn','năm','sáu','bảy','tám','chín'];
+  function readGroup(g){
+    const h=Math.floor(g/100),t=Math.floor((g%100)/10),o=g%10;
+    let s='';
+    if(h>0)s+=digits[h]+' trăm ';
+    if(t>1)s+=digits[t]+' mươi ';
+    else if(t===1)s+='mười ';
+    else if(t===0&&h>0&&o>0)s+='lẻ ';
+    if(o===5&&t>=1)s+='lăm';
+    else if(o===1&&t>1)s+='mốt';
+    else if(o>0)s+=digits[o];
+    return s.trim();
+  }
+  const groups=[];let num=Math.abs(Math.round(n));
+  while(num>0){groups.push(num%1000);num=Math.floor(num/1000);}
+  let result='';
+  for(let i=groups.length-1;i>=0;i--){
+    if(groups[i]>0)result+=readGroup(groups[i])+' '+(units[i]||'')+' ';
+  }
+  return result.trim()+' đồng';
 }
 
 function renderAdvances(){
@@ -1285,17 +1508,21 @@ function renderAdvances(){
         const reqD=fmtDate(a.requestDate);
         const retD=a.returnDate?fmtDate(a.returnDate):'--';
         const st=STATUS[a.status]||{l:a.status,c:'st-draft'};
+        const linkedExp=items.filter(e=>e.advanceId===a.id);
+        const usedAmt=linkedExp.reduce((s,e)=>s+e.amount,0)+(a.cashReturned||0);
+        const remaining=a.amount-usedAmt;
         return `<tr>
           <td style="text-align:center;color:var(--g400);font-size:10px">${i+1}</td>
-          <td>${sn}</td>
-          <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${(a.note||'')+'\n'+(a.noteCn||'')}">${a.note?(a.note.length>25?a.note.slice(0,25)+'...':a.note):''}${a.noteCn?'<br><span style="font-size:9px;color:var(--g400)">'+(a.noteCn.length>15?a.noteCn.slice(0,15)+'...':a.noteCn)+'</span>':''}</td>
-          <td class="amt">${fmtV(a.amount)}</td>
-          <td style="font-size:10px">${reqD}</td>
-          <td style="font-size:10px">${retD}</td>
-          <td>${a.attachments&&a.attachments.length?a.attachments.map((f,fi)=>f.url&&f.url.startsWith('blob:')?'<span style="font-size:9px;color:var(--g400)">⚠️ '+f.name+'</span>':'<span onclick="(function(){const adv=advances.find(x=>x.id==='+a.id+');if(adv)openFilePreview(adv.attachments,'+fi+');else toast(\'File không tồn tại\');})()" style="font-size:9px;color:var(--p);cursor:pointer;text-decoration:underline">'+f.name+'</span>').join(', '):'--'}</td>
-          <td><span class="st ${st.c}">${st.l}</span></td>
-          <td>
-            ${a.status==='draft'?`<button class="btn btn-sm btn-p" onclick="submitAdvance(${a.id})">Nộp 提交</button>`:isMgr()&&a.status==='pending'?`<button class="btn btn-sm btn-s" onclick="approveAdvance(${a.id})">Duyệt 批准</button><button class="btn btn-sm btn-d" onclick="rejectAdvance(${a.id})">Từ chối 退回</button>`:isMgr()&&a.status==='approved'?`<button class="btn btn-sm btn-s" onclick="confirmReturned(${a.id})">Xác nhận hoàn trả 確認歸還</button>`:a.status==='returned'?`<span style="font-size:9px;color:var(--s)">Hoàn trả ${a.returnedDate||''}</span>`:a.status==='rejected'?`<span style="font-size:9px;color:var(--d)" title="${a.rejectedReason||''}">Lý do: ${(a.rejectedReason||'').slice(0,20)}</span>`:''}
+          <td style="font-size:10px;font-weight:600;color:var(--p)">${a.code||'--'}</td>
+          <td style="font-size:11px">${sn}</td>
+          <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;font-size:11px" title="${(a.note||'')+'\n'+(a.noteCn||'')}">${a.note?(a.note.length>20?a.note.slice(0,20)+'...':a.note):''}</td>
+          <td class="amt">${fmtV(a.amount)}${usedAmt?'<br><span style="font-size:9px;color:var(--d)">-'+fmtV(usedAmt)+'</span>':''}</td>
+          <td class="amt" style="color:${remaining>0?'#f59e0b':'var(--s)'};font-weight:600">${fmtV(remaining)}</td>
+          <td style="font-size:10px">${reqD}${a.returnDate?'<br><span style="color:var(--g400)">→'+fmtDate(a.returnDate)+'</span>':''}</td>
+          <td><span class="st ${st.c}">${st.l}</span>${a.attachments&&a.attachments.length?'<br><span style="font-size:9px;color:var(--p)">📎'+a.attachments.length+'</span>':''}</td>
+          <td style="white-space:nowrap">
+            ${a.status==='draft'?`<button class="btn btn-sm btn-p" onclick="submitAdvance(${a.id})">Nộp</button>`:isMgr()&&a.status==='pending'?`<button class="btn btn-sm btn-s" onclick="approveAdvance(${a.id})">✓ Duyệt</button> <button class="btn btn-sm btn-d" onclick="rejectAdvance(${a.id})">✕</button>`:isMgr()&&a.status==='approved'?`<button class="btn btn-sm btn-s" onclick="confirmReturned(${a.id})">Hoàn trả ✓</button>`:a.status==='returned'?`<span style="font-size:9px;color:var(--s)">✓ ${a.returnedDate||''}</span>`:a.status==='rejected'?`<span style="font-size:9px;color:var(--d)" title="${a.rejectedReason||''}">✕ ${(a.rejectedReason||'').slice(0,15)}</span>`:''}
+            ${a.status==='approved'||a.status==='returned'?`<button class="btn btn-sm btn-o" onclick="printAdvSlip(${a.id})" title="In phiếu">🖨</button>`:''}
             ${!isMgr()&&a.status==='draft'?`<button class="btn btn-sm btn-d" onclick="deleteAdvance(${a.id})">Xoá</button>`:''}
           </td>
         </tr>`;
@@ -1314,15 +1541,16 @@ function renderAdvances(){
     const g={pending:[],approved:[],returned:[],rejected:[]};
     advances.forEach(a=>{if(g[a.status])g[a.status].push(a);});
     const labels={pending:{l:'Chờ duyệt 待審批',cl:'#fbbf24'},approved:{l:'⚠ Đã duyệt, chưa hoàn trả 已批准未歸還',cl:'#f87171'},returned:{l:'Đã hoàn trả 已歸還 ✓',cl:'#34d399'},rejected:{l:'Từ chối 退回',cl:'#f87171'}};
-    let h='<thead><tr><th style="text-align:left;width:220px">Trạng thái</th><th>SL</th><th style="text-align:right">Tổng tiền</th><th style="text-align:left">Chi tiết</th></tr></thead><tbody>';
+    let h='<thead><tr><th style="text-align:left;width:220px">Trạng thái</th><th>SL</th><th style="text-align:right">Tổng tiền</th><th style="text-align:right">Còn lại</th><th style="text-align:left">Chi tiết</th></tr></thead><tbody>';
     let hasData=false;
     for(const[k,arr]of Object.entries(g)){
       if(!arr.length)continue;hasData=true;
       const t=arr.reduce((s,a)=>s+a.amount,0);const lb=labels[k];
-      const names=arr.slice(0,3).map(a=>{const s=STAFF.find(x=>x.code===a.staffCode);return s?s.name:a.staffCode;});
-      h+=`<tr><td style="font-weight:600;color:${lb.cl}">${lb.l}</td><td style="text-align:center;font-weight:700;color:${lb.cl}">${arr.length}</td><td class="amt" style="color:${lb.cl}">${fmtV(t)}</td><td style="font-size:10px;color:var(--g500)">${names.join(', ')}${arr.length>3?' ...':''}</td></tr>`;
+      const remainTotal=arr.reduce((s,a)=>{const used=items.filter(e=>e.advanceId===a.id).reduce((ss,e)=>ss+e.amount,0)+(a.cashReturned||0);return s+(a.amount-used);},0);
+      const names=arr.slice(0,3).map(a=>{const s=STAFF.find(x=>x.code===a.staffCode);return s?(s.name+(a.code?' ('+a.code+')':'')):a.staffCode;});
+      h+=`<tr><td style="font-weight:600;color:${lb.cl}">${lb.l}</td><td style="text-align:center;font-weight:700;color:${lb.cl}">${arr.length}</td><td class="amt" style="color:${lb.cl}">${fmtV(t)}</td><td class="amt" style="color:#f59e0b;font-weight:600">${fmtV(remainTotal)}</td><td style="font-size:10px;color:var(--g500)">${names.join(', ')}${arr.length>3?' ...':''}</td></tr>`;
     }
-    if(!hasData)h+='<tr><td colspan="4" style="text-align:center;color:var(--g400);padding:12px">Chưa có đơn tạm ứng</td></tr>';
+    if(!hasData)h+='<tr><td colspan="5" style="text-align:center;color:var(--g400);padding:12px">Chưa có đơn tạm ứng</td></tr>';
     h+='</tbody>';trk.innerHTML=h;
   }
 }
@@ -1342,6 +1570,14 @@ function openApproval(id){
     <div><b>Loại:</b> ${e.type} ${e.typeCn}</div>
     <div><b>Số tiền:</b> <span style="color:var(--p);font-size:15px;font-weight:700">${fmtV(e.amount)}</span></div>
     <div><b>Người chi trả:</b> ${e.payer||'--'}</div>`;
+  if(e.advanceId){
+    const linkedAdv=advances.find(x=>x.id===e.advanceId);
+    if(linkedAdv){
+      const linkedExpAll=items.filter(x=>x.advanceId===e.advanceId);
+      const usedTotal=linkedExpAll.reduce((s,x)=>s+x.amount,0)+(linkedAdv.cashReturned||0);
+      h+=`<div style="background:#eff6ff;padding:6px 8px;border-radius:6px;margin:4px 0;border-left:3px solid var(--p)"><b>🔗 Tạm ứng:</b> ${linkedAdv.code||'--'} | <b>Tổng TƯ:</b> ${fmtV(linkedAdv.amount)} | <b>Đã dùng:</b> ${fmtV(usedTotal)} | <b style="color:#f59e0b">Còn lại: ${fmtV(linkedAdv.amount-usedTotal)}</b></div>`;
+    }
+  }
   if(e.payer==='NV tạm ứng'){
     h+=`<div class="adv-info"><b>NV tạm ứng:</b> ${advStaffObj?advStaffObj.name+' '+advStaffObj.cn:e.advStaff} | <b>Số tiền tạm ứng:</b> ${fmtV(e.advAmt||0)}`;
     if(e.advPaid) h+=` | <span style="color:var(--s);font-weight:600">Đã hoàn trả NV ✓</span>`;
@@ -1380,13 +1616,13 @@ function openApproval(id){
   if(e.status==='paid')h+=`<div style="background:var(--sl);padding:6px 10px;border-radius:6px;font-size:11px;margin:6px 0"><b>Ngày chi tiền:</b> ${e.paidDate}</div>`;
 
   // Boss approved info
-  if(e.status==='boss_approved')h+=`<div style="background:rgba(217,119,6,.05);padding:6px 10px;border-radius:6px;font-size:11px;margin:6px 0;border-left:3px solid rgba(217,119,6,.3)"><b>Boss duyệt lệnh:</b> ${e.bossApprovedDate||''}</div>`;
+  if(['boss_approved','cashier_review','cash_disbursed'].includes(e.status))h+=`<div style="background:rgba(217,119,6,.05);padding:6px 10px;border-radius:6px;font-size:11px;margin:6px 0;border-left:3px solid rgba(217,119,6,.3)"><b>Boss duyệt lệnh:</b> ${e.bossApprovedDate||''} | <b>Phương thức:</b> ${e.method||'--'}${e.method==='Tiền mặt'?' → Thủ quỹ chi TM':' → KT Trưởng CK'}</div>`;
 
   // Payment history
   if(e.paymentHistory&&e.paymentHistory.length){
     h+='<div style="margin-top:8px;padding:8px 12px;background:var(--g50);border-radius:8px;font-size:11px"><b>📋 Lịch sử thao tác:</b><div style="margin-top:4px">';
     e.paymentHistory.forEach(ph=>{
-      const labels={cash_disbursed:'💰 Chi TM',cash_confirmed:'✓ Nhận tiền',ck_paid:'🏦 Chi CK',cashier_rejected:'↩ Trả lại',prepaid:'💵 QL ứng trước',approved:'✅ Duyệt',voucher:'📋 Nộp CT',boss_approved:'⭐ Boss duyệt',sent:'📤 Gửi duyệt',boss_approve_order:'⭐ Boss duyệt lệnh',locked:'🔐 Khóa đơn',unlocked:'🔓 Mở khóa'};
+      const labels={cash_disbursed:'💰 Chi TM',cash_confirmed:'✓ Nhận tiền',ck_paid:'🏦 Chi CK',cashier_rejected:'↩ Trả lại',prepaid:'💵 QL ứng trước',approved:'✅ Duyệt',voucher:'📋 Nộp CT',boss_approved:'⭐ Boss duyệt',sent:'📤 Gửi duyệt',boss_approve_order:'⭐ Boss duyệt lệnh',locked:'🔐 Khóa đơn',unlocked:'🔓 Mở khóa',method_changed:'🔄 Đổi PT thanh toán',submitted:'📤 Nộp phiếu'};
       h+='<div style="padding:2px 0;border-bottom:1px solid var(--g200)"><span style="color:var(--p);font-weight:600">'+(labels[ph.action]||ph.action)+'</span> — '+ph.by+' ('+ph.date+')';
       if(ph.note)h+=' <span style="color:var(--g500)">'+ph.note+'</span>';
       h+='</div>';
@@ -1484,7 +1720,7 @@ function batchKttReturn(m){
   saveData();syncImmediate('KTT-trả-lại-hàng-loạt','KTT trả lại '+sel.length);renderM(m);toast('KTT đã trả lại '+sel.length+' đơn');
 }
 function returnItem(id){const r=prompt('Lý do trả về:');if(!r||!r.trim())return;const e=items.find(x=>x.id===id);if(!e)return;e.status='rejected';e.rejectedReason='[Boss trả về] '+r.trim();e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'boss_returned',by:currentUser?currentUser.name:'',date:new Date().toISOString().slice(0,10),note:'Boss trả về: '+r.trim()});closeM('approveModal');saveData();syncImmediate('boss-trả-về',e.code);rerender();toast('Đã trả về');}
-function confirmAdvPaid(id){if(!confirm('Xác nhận đã hoàn trả tiền tạm ứng cho nhân viên?'))return;const e=items.find(x=>x.id===id);if(!e)return;e.advPaid=true;closeM('approveModal');saveData();rerender();toast('Đã xác nhận hoàn trả');}
+function confirmAdvPaid(id){if(!confirm('Xác nhận đã hoàn trả tiền tạm ứng cho nhân viên?'))return;const e=items.find(x=>x.id===id);if(!e)return;e.advPaid=true;closeM('approveModal');saveData();syncImmediate('xac-nhan-hoan-tra',e.code);rerender();toast('Đã xác nhận hoàn trả');}
 
 // ============ THU HỒI (Recall) ============
 function requestRecall(id){
@@ -1496,7 +1732,7 @@ function requestRecall(id){
   e.recallReason=reason.trim();
   e.recallDate=new Date().toISOString().slice(0,10);
   e.recallBy=currentUser?currentUser.username:'';
-  closeM('approveModal');saveData();rerender();toast('Đã gửi yêu cầu thu hồi — chờ quản lý duyệt');
+  closeM('approveModal');saveData();syncImmediate('thu-hoi',e.code);rerender();toast('Đã gửi yêu cầu thu hồi — chờ quản lý duyệt');
 }
 function batchRecall(m){
   const sel=getSel(m).filter(e=>e.status!=='draft'&&e.status!=='paid'&&e.status!=='recall_pending');
@@ -1507,21 +1743,21 @@ function batchRecall(m){
     e.recallPrevStatus=e.status;e.status='recall_pending';e.recallReason=reason.trim();
     e.recallDate=today;e.recallBy=currentUser?currentUser.username:'';e.selected=false;delete e._selCtx;
   });
-  saveData();renderM(m);toast('Đã gửi yêu cầu thu hồi '+sel.length+' khoản');
+  saveData();syncImmediate('thu-hoi-hang-loat','batch');renderM(m);toast('Đã gửi yêu cầu thu hồi '+sel.length+' khoản');
 }
 function approveRecall(id){
   if(!canApprove()){toast('Không có quyền duyệt thu hồi');return;}
   const e=items.find(x=>x.id===id);if(!e||e.status!=='recall_pending')return;
   e.status='draft';e.approvedDate='';e.voucherDate='';e.paidDate='';e.bossApprovedDate='';
   e.rejectedReason='';e.submitted=false;e.submittedDate='';
-  closeM('approveModal');saveData();rerender();toast('Đã duyệt thu hồi — khoản trả về Nháp');
+  closeM('approveModal');saveData();syncImmediate('duyet-thu-hoi',e.code);rerender();toast('Đã duyệt thu hồi — khoản trả về Nháp');
 }
 function rejectRecall(id){
   if(!canApprove()){toast('Không có quyền');return;}
   const e=items.find(x=>x.id===id);if(!e||e.status!=='recall_pending')return;
   e.status=e.recallPrevStatus||'pending'; // trả về trạng thái trước
   e.recallReason='';e.recallDate='';e.recallBy='';e.recallPrevStatus='';
-  closeM('approveModal');saveData();rerender();toast('Đã từ chối thu hồi');
+  closeM('approveModal');saveData();syncImmediate('tu-choi-thu-hoi',e.code);rerender();toast('Đã từ chối thu hồi');
 }
 function batchApproveRecall(m){
   if(!canApprove()){toast('Không có quyền');return;}
@@ -1531,7 +1767,7 @@ function batchApproveRecall(m){
     e.status='draft';e.approvedDate='';e.voucherDate='';e.paidDate='';e.bossApprovedDate='';
     e.rejectedReason='';e.submitted=false;e.submittedDate='';e.selected=false;delete e._selCtx;
   });
-  saveData();renderM(m);toast('Đã duyệt thu hồi '+sel.length+' khoản — trả về Nháp');
+  saveData();syncImmediate('duyet-thu-hoi-batch','batch');renderM(m);toast('Đã duyệt thu hồi '+sel.length+' khoản — trả về Nháp');
 }
 
 
@@ -1544,7 +1780,7 @@ function cashierApproveItem(id){
   e.cashDisbursedBy=currentUser?currentUser.name:'';
   e.paymentHistory=(e.paymentHistory||[]);
   e.paymentHistory.push({action:'cash_disbursed',by:currentUser?currentUser.name:'',date:new Date().toISOString().slice(0,10),note:'Thủ quỹ xác nhận chi tiền mặt'});
-  closeM('approveModal');saveData();rerender();toast('Đã xác nhận chi tiền mặt ✓');
+  closeM('approveModal');saveData();syncImmediate('chi-tien-mat-don',e.code);rerender();toast('Đã xác nhận chi tiền mặt ✓');
 }
 // Cashier: trả lại đơn → rejected with reason
 function cashierRejectItem(id){
@@ -1554,7 +1790,7 @@ function cashierRejectItem(id){
   e.status='rejected';e.rejectedReason='[Thủ quỹ trả lại] '+reason.trim();
   e.paymentHistory=(e.paymentHistory||[]);
   e.paymentHistory.push({action:'cashier_rejected',by:currentUser?currentUser.name:'',date:new Date().toISOString().slice(0,10),note:reason.trim()});
-  closeM('approveModal');saveData();rerender();toast('Đã trả lại đơn');
+  closeM('approveModal');saveData();syncImmediate('TQ-tra-lai-don',e.code);rerender();toast('Đã trả lại đơn');
 }
 // Batch cashier approve
 function batchCashierApprove(m){
@@ -1689,6 +1925,8 @@ function openEdit(id){
   if(e.locked&&!isMgr()&&!isBoss()){toast('Đơn đã khóa 🔐 — chỉ QL/Boss mới chỉnh sửa được');return;}
   if(isStaff()&&e.staffCode!==currentUser.staffCode){toast('Không có quyền');return;}
   if(!isMgr()&&e.status!=='draft'){toast('Chỉ sửa được khoản ở trạng thái Nháp. Dùng "Thu hồi" nếu cần chỉnh sửa');return;}
+  // Manager/Boss: chỉ cho sửa phương thức + 1 số field, không cho sửa nếu đã paid/returned
+  if(isMgr()&&['paid','returned','cash_confirmed'].includes(e.status)){toast('Đơn đã hoàn tất — không thể chỉnh sửa');return;}
   document.getElementById('eId').value=id;
   document.getElementById('eDate').value=e.date;
   document.getElementById('eType').innerHTML=catOpts();document.getElementById('eType').value=e.type;
@@ -1701,6 +1939,7 @@ function openEdit(id){
   document.getElementById('eAdvStaff').innerHTML=staffOpts();document.getElementById('eAdvStaff').value=e.advStaff||'';
   document.getElementById('eAdvAmt').value=e.advAmt?e.advAmt.toLocaleString('vi-VN'):'';
   document.getElementById('eMethod').value=e.method||'Tiền mặt';
+  e._prevMethod=e.method||'Tiền mặt'; // Lưu phương thức cũ để detect thay đổi
   document.getElementById('eVat').value=e.vat||'Không';
   document.getElementById('eVatNumRow').style.display=e.vat==='Có'?'':'none';
   document.getElementById('eVatNum').value=e.vatNum||'';
@@ -1720,7 +1959,24 @@ function saveEdit(){
   e.method=document.getElementById('eMethod').value;e.vat=document.getElementById('eVat').value;
   e.vatNum=e.vat==='Có'?document.getElementById('eVatNum').value.trim():'';
   e.note=document.getElementById('eNote').value.trim();e.noteCn=document.getElementById('eNoteCn').value.trim();e.remark=(document.getElementById('eRemark').value||'').trim();
-  closeM('editModal');saveLog('sửa-chi-phí',e.code+' '+e.type);rerender();toast('Đã cập nhật');
+
+  // FIX: Khi sửa phương thức thanh toán sau khi boss đã duyệt → chuyển status đúng queue
+  const oldMethod=e._prevMethod;
+  if(oldMethod&&oldMethod!==e.method&&['boss_approved','cashier_review'].includes(e.status)){
+    const today=new Date().toISOString().slice(0,10);
+    if(e.method==='Tiền mặt'){
+      e.status='cashier_review';
+      e.paymentHistory=(e.paymentHistory||[]);
+      e.paymentHistory.push({action:'method_changed',by:currentUser?currentUser.name:'',date:today,note:'Đổi phương thức: '+oldMethod+' → Tiền mặt → chuyển Thủ quỹ'});
+    }else{
+      e.status='boss_approved';
+      e.paymentHistory=(e.paymentHistory||[]);
+      e.paymentHistory.push({action:'method_changed',by:currentUser?currentUser.name:'',date:today,note:'Đổi phương thức: '+oldMethod+' → Chuyển khoản → chuyển KT Trưởng'});
+    }
+  }
+  delete e._prevMethod;
+
+  closeM('editModal');saveLog('sửa-chi-phí',e.code+' '+e.type);syncImmediate('sua-chi-phi',e.code);rerender();toast('Đã cập nhật');
 }
 
 function rerender(){const at=document.querySelector('.tab.on');if(!at)return;if(at.dataset.tab==='overview')renderOverview();else if(at.dataset.tab.startsWith('m'))renderM(at.dataset.tab.slice(1));}
@@ -1818,7 +2074,7 @@ function lockItem(id){
   e.locked=true;e.lockedBy=currentUser?currentUser.name:'';e.lockedDate=new Date().toISOString().slice(0,10);
   e.paymentHistory=(e.paymentHistory||[]);
   e.paymentHistory.push({action:'locked',by:currentUser?currentUser.name:'',date:e.lockedDate,note:'Khóa đơn'});
-  closeM('approveModal');saveData();rerender();toast('Đã khóa đơn 🔐');
+  closeM('approveModal');saveData();syncImmediate('lock-item',e.code);rerender();toast('Đã khóa đơn 🔐');
 }
 function unlockItem(id){
   if(!isMgr()&&!isBoss()){toast('Chỉ Quản lý hoặc Boss mới có thể mở khóa');return;}
@@ -1826,7 +2082,7 @@ function unlockItem(id){
   e.locked=false;
   e.paymentHistory=(e.paymentHistory||[]);
   e.paymentHistory.push({action:'unlocked',by:currentUser?currentUser.name:'',date:new Date().toISOString().slice(0,10),note:'Mở khóa đơn'});
-  closeM('approveModal');saveData();rerender();toast('Đã mở khóa đơn 🔓');
+  closeM('approveModal');saveData();syncImmediate('unlock-item',e.code);rerender();toast('Đã mở khóa đơn 🔓');
 }
 function batchLock(m){
   const sel=getSel(m).filter(e=>e.status==='paid'&&!e.locked);
@@ -2554,7 +2810,7 @@ function syncImmediate(actionType,detail){
   _lastSyncDetail=detail||'';
   clearTimeout(syncTimer);
   markUnsynced();
-  const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
+  const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
   if(isSyncing){
     _pendingSyncData=data;
     console.log('[SYNC] Queued immediate: đang sync, sẽ sync lại ngay sau');
@@ -2568,7 +2824,7 @@ window.addEventListener('beforeunload',function(ev){
   if(!GSHEET_API||!hasUnsynced())return;
   // Dùng sendBeacon (reliable khi đóng tab) hoặc fetch keepalive
   try{
-    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
+    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
     const syncUser=(typeof currentUser!=='undefined'&&currentUser)?currentUser.displayName||currentUser.username||currentRole:currentRole||'unknown';
     data._syncUser=syncUser;
     data._syncAction='beforeunload-emergency';
@@ -2593,7 +2849,7 @@ document.addEventListener('visibilitychange',function(){
     console.log('[SYNC] Tab hidden — triggering immediate sync');
     clearTimeout(syncTimer);
     if(!isSyncing){
-      const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
+      const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
       syncToSheets(data);
     }
   }
@@ -2607,7 +2863,7 @@ window.addEventListener('load',function(){
       if(!isSyncing){
         _lastSyncAction='recovery-sync';
         _lastSyncDetail='Auto recovery từ session trước';
-        const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
+        const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
         syncToSheets(data);
       }
     },3000); // đợi 3s sau khi loadData xong
@@ -2620,7 +2876,7 @@ setInterval(function(){
     console.log('[SYNC] Periodic check: found unsynced data — retrying...');
     _lastSyncAction='periodic-retry';
     _syncRetryCount=0;
-    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
+    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
     syncToSheets(data);
   }
 },30000);
@@ -2646,7 +2902,7 @@ function updateSyncUI(status,msg){
 function forceSync(){
   _syncRetryCount=0;
   isSyncing=false;
-  const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
+  const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
   syncToSheets(data);
 }
 
@@ -2656,7 +2912,7 @@ function saveData(actionType,detail){
     if(detail)_lastSyncDetail=detail;
     if(!actionType&&!_lastSyncAction){_lastSyncAction='auto-save';}
     items.forEach(e=>{delete e._selCtx;e.selected=false;});
-    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
+    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
     const json=JSON.stringify(data);
     try{localStorage.setItem(LS_KEY,json);}catch(storageErr){
       console.error('localStorage full:',storageErr);
@@ -2680,9 +2936,9 @@ function saveData(actionType,detail){
 // Helper: saveData với action log
 function saveLog(action,detail){_lastSyncAction=action;_lastSyncDetail=detail||'';saveData();}
 
-async function loadData(){
+// === Load dữ liệu từ localStorage (đồng bộ, nhanh) ===
+function loadLocalData(){
   try{
-    // Ưu tiên: localStorage > window._ld > PRELOAD
     let raw=localStorage.getItem(LS_KEY)||window._ld;
     if(raw){
       const d=JSON.parse(raw);
@@ -2695,19 +2951,21 @@ async function loadData(){
     }else if(typeof PRELOAD!=='undefined'&&PRELOAD.length){
       items=JSON.parse(JSON.stringify(PRELOAD));nextId=items.reduce((mx,e)=>Math.max(mx,e.id),0)+1;
     }
-    // Merge DEFAULT_USERS mới vào USERS (thêm TK chưa có)
     if(typeof DEFAULT_USERS!=='undefined'){
       const existUsernames=new Set(USERS.map(u=>u.username));
       DEFAULT_USERS.forEach(du=>{if(!existUsernames.has(du.username)){USERS.push(JSON.parse(JSON.stringify(du)));}});
       try{localStorage.setItem('loho_users',JSON.stringify(USERS));}catch(e){}
     }
     items.forEach(e=>{if(!('submitted'in e))e.submitted=false;if(!('submittedDate'in e))e.submittedDate='';if(!('remark'in e))e.remark='';if(!('hidden'in e))e.hidden=((e.type==='Lương nhân viên'||e.type==='Thưởng')&&e.staffCode==='VP001');if(e.date&&typeof e.date==='string'&&e.date.length>10)e.date=e.date.slice(0,10);if(!('paymentHistory'in e))e.paymentHistory=[];});
-    // Load from Google Sheets — AWAIT để đảm bảo data đầy đủ trước khi user thao tác
-    if(GSHEET_API){
-      updateSyncUI('sync','⏳ Đang tải dữ liệu...');
-      await loadFromSheets();
-    }
-  }catch(e){console.error('loadData error:',e);}
+  }catch(e){console.error('loadLocalData error:',e);}
+}
+// === Load đầy đủ: local + Sheets (dùng cho saveData gọi lại) ===
+async function loadData(){
+  loadLocalData();
+  if(GSHEET_API){
+    updateSyncUI('sync','⏳ Đang tải dữ liệu...');
+    await loadFromSheets();
+  }
 }
 
 // === AUTO-CLEAN TEST DATA (chạy 1 lần) ===
@@ -2755,16 +3013,18 @@ function mergeItems(localItems, remoteItems){
     if(!localMap.has(re.id)){
       localMap.set(re.id,re);
     } else {
-      // Cùng id: so sánh savedAt/submittedDate/approvedDate/paidDate — dùng bản mới hơn
       const le=localMap.get(re.id);
-      const localTime=le.paidDate||le.approvedDate||le.submittedDate||le.date||'';
-      const remoteTime=re.paidDate||re.approvedDate||re.submittedDate||re.date||'';
-      // Nếu remote có trạng thái "tiến xa hơn" trong workflow → dùng remote
-      const stOrder={draft:0,pending:1,approved:2,voucher:3,boss_approved:4,cashier_review:5,cash_disbursed:6,paid:7,rejected:1,recall_pending:1,returned:7,cash_confirmed:7};
+      // v6: Status order — rejected/recall riêng biệt
+      const stOrder={draft:0,pending:1,rejected:1.5,recall_pending:1.5,approved:2,'Chờ nộp CT':3,voucher:3,'Đã nộp CT':4,boss_approved:5,cashier_review:5.5,cash_disbursed:6,paid:7,returned:7,cash_confirmed:7};
       const lOrd=stOrder[le.status]||0;
       const rOrd=stOrder[re.status]||0;
       if(rOrd>lOrd){
-        localMap.set(re.id,re); // Remote đã tiến xa hơn trong workflow
+        localMap.set(re.id,re);
+      }else if(rOrd===lOrd){
+        // v6 tiebreaker: cùng status → bản có timestamp mới hơn thắng
+        const lTime=le.paidDate||le.approvedDate||le.submittedDate||le.savedAt||'';
+        const rTime=re.paidDate||re.approvedDate||re.submittedDate||re.savedAt||'';
+        if(rTime>lTime)localMap.set(re.id,re);
       }
     }
   });
@@ -2774,8 +3034,19 @@ function mergeItems(localItems, remoteItems){
 
 // Merge advances
 function mergeAdvances(localAdv, remoteAdv){
+  const advStOrder={draft:0,pending:1,approved:2,rejected:1,returned:3};
   const localMap=new Map(localAdv.map(a=>[a.id,a]));
-  remoteAdv.forEach(ra=>{if(!localMap.has(ra.id))localMap.set(ra.id,ra);});
+  remoteAdv.forEach(ra=>{
+    if(!localMap.has(ra.id)){
+      localMap.set(ra.id,ra);
+    }else{
+      // v6: So sánh status — không phải local luôn thắng
+      const la=localMap.get(ra.id);
+      const lOrd=advStOrder[la.status]||0;
+      const rOrd=advStOrder[ra.status]||0;
+      if(rOrd>lOrd)localMap.set(ra.id,ra);
+    }
+  });
   return Array.from(localMap.values());
 }
 
@@ -2787,7 +3058,7 @@ async function syncToSheets(data){
   console.log('[SYNC] Start — items:',data.items.length,'user:',(currentUser?currentUser.username:'?'));
   try{
     // Bước 1: Load data hiện tại từ Sheets — BẮT BUỘC phải thành công
-    let remoteItems=[],remoteAdvances=[],remoteBudgets={},remoteNextId=1,remoteAdvNextId=1;
+    let remoteItems=[],remoteAdvances=[],remoteBudgets={},remoteNextId=1,remoteAdvNextId=1,remoteCashBatches=[],remoteCashBatchNextId=1;
     let preLoadOk=false;
     try{
       const loadRes=await fetch(GSHEET_API+'?action=load',{signal:AbortSignal.timeout(30000)});
@@ -2798,6 +3069,10 @@ async function syncToSheets(data){
         remoteBudgets=lr.budgets||{};
         remoteNextId=lr.nextId||1;
         remoteAdvNextId=lr.advNextId||1;
+        // v6: Merge deletedIds + cashBatches từ remote
+        if(lr.deletedIds&&Array.isArray(lr.deletedIds))lr.deletedIds.forEach(id=>_deletedIds.add(id));
+        remoteCashBatches=lr.cashBatches||[];
+        remoteCashBatchNextId=lr.cashBatchNextId||1;
         preLoadOk=true;
         console.log('[SYNC] Remote loaded:',remoteItems.length,'items');
       }else{
@@ -2827,12 +3102,19 @@ async function syncToSheets(data){
     // Bước 2: Luôn dùng items HIỆN TẠI (không dùng snapshot cũ từ debounce)
     const currentData={items:[...items],budgets:{...budgets},nextId,advances:[...advances],advNextId,cashBatches:[...(cashBatches||[])],cashBatchNextId:cashBatchNextId||1};
 
-    // Bước 3: Merge local + remote
-    const mergedItems=mergeItems(currentData.items, remoteItems);
+    // Bước 3: Merge local + remote (v6: + cashBatches + deletedIds)
+    const mergedItems=mergeItems(currentData.items, remoteItems).filter(e=>!_deletedIds.has(e.id));
     const mergedAdvances=mergeAdvances(currentData.advances, remoteAdvances);
     const mergedNextId=Math.max(currentData.nextId||1, remoteNextId, mergedItems.reduce((mx,e)=>Math.max(mx,e.id),0)+1);
     const mergedAdvNextId=Math.max(currentData.advNextId||1, remoteAdvNextId, mergedAdvances.reduce((mx,a)=>Math.max(mx,a.id||0),0)+1);
     const mergedBudgets=Object.assign({},remoteBudgets,currentData.budgets||{});
+    // v6: Merge cashBatches
+    if(remoteCashBatches.length>0){
+      const batchMap=new Map(currentData.cashBatches.map(b=>[b.id,b]));
+      remoteCashBatches.forEach(rb=>{if(!batchMap.has(rb.id))batchMap.set(rb.id,rb);else{const lb=batchMap.get(rb.id);if((rb.confirmedAt&&!lb.confirmedAt)||(rb.status&&!lb.status))batchMap.set(rb.id,rb);}});
+      cashBatches=Array.from(batchMap.values());
+      cashBatchNextId=Math.max(cashBatchNextId||1,remoteCashBatchNextId,cashBatches.reduce((mx,b)=>Math.max(mx,b.id||0),0)+1);
+    }
 
     // Bước 4: Cập nhật local data với merged result
     items=mergedItems;
@@ -2845,7 +3127,7 @@ async function syncToSheets(data){
 
     // Bước 5: POST merged data lên Sheets
     const merged={items:mergedItems,budgets:mergedBudgets,nextId:mergedNextId,advances:mergedAdvances,advNextId:mergedAdvNextId,
-      cashBatches:currentData.cashBatches,cashBatchNextId:currentData.cashBatchNextId,savedAt:new Date().toISOString()};
+      cashBatches:currentData.cashBatches,cashBatchNextId:currentData.cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
     const syncUser=(typeof currentUser!=='undefined'&&currentUser)?currentUser.displayName||currentUser.username||currentRole:currentRole||'unknown';
     merged._syncUser=syncUser;
     merged._syncAction=_lastSyncAction||'auto-save';
@@ -2922,8 +3204,65 @@ async function loadFromSheets(){
 
       items.forEach(e=>{if(!('submitted'in e))e.submitted=false;if(!('submittedDate'in e))e.submittedDate='';if(!('remark'in e))e.remark='';});
 
+      // v6: Sync USERS từ remote — đồng bộ vai trò, tên, mật khẩu giữa các máy
+      if(r.users&&Array.isArray(r.users)&&r.users.length>0){
+        const remoteUsers=r.users;
+        // Merge: remote là authority (Boss/Manager đổi vai trò → tất cả máy cập nhật)
+        remoteUsers.forEach(ru=>{
+          const localIdx=USERS.findIndex(u=>u.username===ru.username);
+          if(localIdx===-1){
+            // User mới từ remote → thêm vào local
+            USERS.push(ru);
+          }else{
+            // User đã có → cập nhật role, name, staffCode, password từ remote
+            USERS[localIdx].role=ru.role;
+            USERS[localIdx].name=ru.name;
+            USERS[localIdx].staffCode=ru.staffCode||'';
+            USERS[localIdx].password=ru.password;
+            // Cập nhật currentUser nếu đang đăng nhập user này
+            if(currentUser&&currentUser.username===ru.username){
+              currentUser.role=ru.role;
+              currentUser.name=ru.name;
+              currentUser.staffCode=ru.staffCode||'';
+              currentRole=ru.role;
+            }
+          }
+        });
+        // v6: Chỉ xóa local user nếu remote có đủ data (tránh race condition khi sync chưa kịp)
+        if(remoteUsers.length>=3)USERS=USERS.filter(u=>remoteUsers.some(ru=>ru.username===u.username));
+        try{localStorage.setItem('loho_users',JSON.stringify(USERS));}catch(e){}
+        console.log('[LOAD] Users synced:',USERS.length,'accounts');
+      }
+
       const json=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
       try{localStorage.setItem(LS_KEY,json);}catch(se){}
+
+      // v6: Merge deletedIds từ remote — đảm bảo items bị xóa trên 1 máy không tái xuất hiện
+      if(r.deletedIds&&Array.isArray(r.deletedIds)){
+        r.deletedIds.forEach(id=>_deletedIds.add(id));
+        saveDeletedIds();
+        // Lọc bỏ items đã bị xóa trên máy khác
+        const beforeFilter=items.length;
+        items=items.filter(e=>!_deletedIds.has(e.id));
+        if(items.length<beforeFilter)console.log('[LOAD] Filtered',beforeFilter-items.length,'deleted items from remote');
+      }
+
+      // v6: Merge cashBatches từ remote
+      if(r.cashBatches&&Array.isArray(r.cashBatches)){
+        const localBatchMap=new Map((cashBatches||[]).map(b=>[b.id,b]));
+        r.cashBatches.forEach(rb=>{
+          if(!localBatchMap.has(rb.id)){
+            localBatchMap.set(rb.id,rb);
+          }else{
+            // Remote có trạng thái mới hơn → dùng remote
+            const lb=localBatchMap.get(rb.id);
+            if((rb.confirmedAt&&!lb.confirmedAt)||(rb.status&&!lb.status))localBatchMap.set(rb.id,rb);
+          }
+        });
+        cashBatches=Array.from(localBatchMap.values());
+        cashBatchNextId=Math.max(cashBatchNextId||1,r.cashBatchNextId||1,cashBatches.reduce((mx,b)=>Math.max(mx,b.id||0),0)+1);
+        console.log('[LOAD] CashBatches synced:',cashBatches.length);
+      }
 
       console.log('[LOAD] Merged: local='+prevCount+' remote='+remoteItems.length+' total='+items.length);
       _sheetsLoaded=true;
@@ -2959,7 +3298,7 @@ function restoreData(){
         const d=JSON.parse(reader.result);
         if(!d.items||!Array.isArray(d.items)){toast('File không hợp lệ');return;}
         if(!confirm(`Khôi phục ${d.items.length} khoản chi phí từ backup ${d.exportedAt||''}?\nDữ liệu hiện tại sẽ bị thay thế.`))return;
-        items=d.items;budgets=d.budgets||{};nextId=d.nextId||1;advances=d.advances||[];advNextId=d.advNextId||1;
+        items=d.items;budgets=d.budgets||{};nextId=d.nextId||1;advances=d.advances||[];advNextId=d.advNextId||1;cashBatches=d.cashBatches||[];cashBatchNextId=d.cashBatchNextId||1;
         saveLog('khôi-phục-backup','Từ file '+f.name+' ('+d.items.length+' khoản)');rerender();toast(`Đã khôi phục ${items.length} khoản`);
       }catch(e){toast('Lỗi đọc file: '+e.message);}
     };reader.readAsText(f);
@@ -3075,6 +3414,7 @@ function saveUser(){
   if(idx===-1){USERS.push(userData);}
   else{USERS[idx]=userData;if(currentUser&&currentUser.username===username){currentUser=userData;currentRole=role;}}
   localStorage.setItem('loho_users',JSON.stringify(USERS));
+  syncImmediate('save-user',username+' → '+role); // v6: đồng bộ vai trò/tài khoản
   closeM('userModal');renderUserMgmt();toast('Đã lưu tài khoản');
 }
 
@@ -3085,6 +3425,7 @@ function deleteUser(idx){
   if(!confirm('Xoá tài khoản "'+u.username+'"?'))return;
   USERS.splice(idx,1);
   localStorage.setItem('loho_users',JSON.stringify(USERS));
+  syncImmediate('delete-user',u.username); // v6: đồng bộ xóa tài khoản
   renderUserMgmt();toast('Đã xoá');
 }
 
@@ -3100,6 +3441,7 @@ function resetUserPw(idx){
   USERS[idx].password=defaultPw;
   if(currentUser&&currentUser.username===u.username)currentUser.password=defaultPw;
   localStorage.setItem('loho_users',JSON.stringify(USERS));
+  syncImmediate('reset-pw',u.username); // v6: đồng bộ reset mật khẩu
   renderUserMgmt();toast('Đã reset mật khẩu → '+defaultPw+' ✓');saveLog('reset-pw',u.username);
 }
 
