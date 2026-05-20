@@ -75,6 +75,11 @@ function loadDeletedIds(){try{const s=localStorage.getItem('loho_deletedIds');if
 function saveDeletedIds(){try{localStorage.setItem('loho_deletedIds',JSON.stringify([..._deletedIds]));}catch(e){}}
 loadDeletedIds();
 
+let _deletedAdvIds=new Set();
+function loadDeletedAdvIds(){try{const s=localStorage.getItem('loho_deletedAdvIds');if(s)_deletedAdvIds=new Set(JSON.parse(s));}catch(e){}}
+function saveDeletedAdvIds(){try{localStorage.setItem('loho_deletedAdvIds',JSON.stringify([..._deletedAdvIds]));}catch(e){}}
+loadDeletedAdvIds();
+
 // ============ AUTH & ROLE SYSTEM ============
 function togglePwVis(){const p=document.getElementById('loginPass');const b=document.getElementById('pwToggleBtn');if(p.type==='password'){p.type='text';b.textContent='🙈';}else{p.type='password';b.textContent='👁';}}
 function doLogin(){
@@ -1307,10 +1312,10 @@ async function addAdvance(){
   document.getElementById('advNoteCn').value='';
   fileInput.value='';
 
-  saveData();syncImmediate('them-tam-ung',staff+' '+fmtV(amt));renderAdvances();toast('Đã nộp đơn tạm ứng');
+  saveData();syncImmediate('them-tam-ung',staff+' '+fmtV(amt));renderAdvances();toast('Đã tạo đơn tạm ứng — Bấm "Nộp" để gửi quản lý duyệt');
 }
 
-function deleteAdvance(id){if(!confirm('Xoá đơn tạm ứng?'))return;advances=advances.filter(e=>e.id!==id);saveData();syncImmediate('xoa-tam-ung',id);renderAdvances();toast('Đã xoá');}
+function deleteAdvance(id){if(!confirm('Xoá đơn tạm ứng này?'))return;_deletedAdvIds.add(id);saveDeletedAdvIds();advances=advances.filter(e=>e.id!==id);saveData();syncImmediate('xoa-tam-ung',id);renderAdvances();toast('Đã xoá');}
 
 function approveAdvance(id){
   if(!isMgr())return;
@@ -1592,7 +1597,7 @@ function renderAdvances(){
           <td style="white-space:nowrap">
             ${a.status==='draft'?`<button class="btn btn-sm btn-p" onclick="submitAdvance(${a.id})">Nộp</button>`:isMgr()&&a.status==='pending'?`<button class="btn btn-sm btn-s" onclick="approveAdvance(${a.id})">✓ Duyệt</button> <button class="btn btn-sm btn-d" onclick="rejectAdvance(${a.id})">✕</button>`:isMgr()&&a.status==='approved'?`<button class="btn btn-sm btn-s" onclick="confirmReturned(${a.id})">Hoàn trả ✓</button>`:a.status==='returned'?`<span style="font-size:9px;color:var(--s)">✓ ${a.returnedDate||''}</span>`:a.status==='rejected'?`<span style="font-size:9px;color:var(--d)" title="${a.rejectedReason||''}">✕ ${(a.rejectedReason||'').slice(0,15)}</span>`:''}
             ${a.status==='approved'||a.status==='returned'?`<button class="btn btn-sm btn-print" onclick="printAdvSlip(${a.id})" title="In phiếu tạm ứng">🖨️</button>`:''}
-            ${!isMgr()&&a.status==='draft'?`<button class="btn btn-sm btn-d" onclick="deleteAdvance(${a.id})">Xoá</button>`:''}
+            ${(!isMgr()&&a.status==='draft')||isMgr()?`<button class="btn btn-sm btn-d" onclick="deleteAdvance(${a.id})">Xoá</button>`:''}
           </td>
         </tr>`;
       }).join('');
@@ -2879,7 +2884,7 @@ function syncImmediate(actionType,detail){
   _lastSyncDetail=detail||'';
   clearTimeout(syncTimer);
   markUnsynced();
-  const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
+  const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
   if(isSyncing){
     _pendingSyncData=data;
     console.log('[SYNC] Queued immediate: đang sync, sẽ sync lại ngay sau');
@@ -2893,7 +2898,7 @@ window.addEventListener('beforeunload',function(ev){
   if(!GSHEET_API||!hasUnsynced())return;
   // Dùng sendBeacon (reliable khi đóng tab) hoặc fetch keepalive
   try{
-    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
+    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
     const syncUser=(typeof currentUser!=='undefined'&&currentUser)?currentUser.displayName||currentUser.username||currentRole:currentRole||'unknown';
     data._syncUser=syncUser;
     data._syncAction='beforeunload-emergency';
@@ -2918,7 +2923,7 @@ document.addEventListener('visibilitychange',function(){
     console.log('[SYNC] Tab hidden — triggering immediate sync');
     clearTimeout(syncTimer);
     if(!isSyncing){
-      const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
+      const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
       syncToSheets(data);
     }
   }
@@ -2932,7 +2937,7 @@ window.addEventListener('load',function(){
       if(!isSyncing){
         _lastSyncAction='recovery-sync';
         _lastSyncDetail='Auto recovery từ session trước';
-        const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
+        const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
         syncToSheets(data);
       }
     },3000); // đợi 3s sau khi loadData xong
@@ -2945,7 +2950,7 @@ setInterval(function(){
     console.log('[SYNC] Periodic check: found unsynced data — retrying...');
     _lastSyncAction='periodic-retry';
     _syncRetryCount=0;
-    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
+    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
     syncToSheets(data);
   }
 },30000);
@@ -2971,7 +2976,7 @@ function updateSyncUI(status,msg){
 function forceSync(){
   _syncRetryCount=0;
   isSyncing=false;
-  const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
+  const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
   syncToSheets(data);
 }
 
@@ -2981,7 +2986,7 @@ function saveData(actionType,detail){
     if(detail)_lastSyncDetail=detail;
     if(!actionType&&!_lastSyncAction){_lastSyncAction='auto-save';}
     items.forEach(e=>{delete e._selCtx;e.selected=false;});
-    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
+    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
     const json=JSON.stringify(data);
     try{localStorage.setItem(LS_KEY,json);}catch(storageErr){
       console.error('localStorage full:',storageErr);
@@ -3106,17 +3111,17 @@ function mergeAdvances(localAdv, remoteAdv){
   const advStOrder={draft:0,pending:1,approved:2,rejected:1,returned:3};
   const localMap=new Map(localAdv.map(a=>[a.id,a]));
   remoteAdv.forEach(ra=>{
+    if(_deletedAdvIds.has(ra.id))return; // Đã bị xóa — không thêm lại
     if(!localMap.has(ra.id)){
       localMap.set(ra.id,ra);
     }else{
-      // v6: So sánh status — không phải local luôn thắng
       const la=localMap.get(ra.id);
       const lOrd=advStOrder[la.status]||0;
       const rOrd=advStOrder[ra.status]||0;
       if(rOrd>lOrd)localMap.set(ra.id,ra);
     }
   });
-  return Array.from(localMap.values());
+  return Array.from(localMap.values()).filter(a=>!_deletedAdvIds.has(a.id));
 }
 
 // Sync lên Google Sheets (v4: retry + queue + await loadFromSheets)
@@ -3140,6 +3145,7 @@ async function syncToSheets(data){
         remoteAdvNextId=lr.advNextId||1;
         // v6: Merge deletedIds + cashBatches từ remote
         if(lr.deletedIds&&Array.isArray(lr.deletedIds))lr.deletedIds.forEach(id=>_deletedIds.add(id));
+        if(lr.deletedAdvIds&&Array.isArray(lr.deletedAdvIds))lr.deletedAdvIds.forEach(id=>{_deletedAdvIds.add(id);});saveDeletedAdvIds();
         remoteCashBatches=lr.cashBatches||[];
         remoteCashBatchNextId=lr.cashBatchNextId||1;
         preLoadOk=true;
@@ -3196,7 +3202,7 @@ async function syncToSheets(data){
 
     // Bước 5: POST merged data lên Sheets
     const merged={items:mergedItems,budgets:mergedBudgets,nextId:mergedNextId,advances:mergedAdvances,advNextId:mergedAdvNextId,
-      cashBatches:currentData.cashBatches,cashBatchNextId:currentData.cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],savedAt:new Date().toISOString()};
+      cashBatches:currentData.cashBatches,cashBatchNextId:currentData.cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
     const syncUser=(typeof currentUser!=='undefined'&&currentUser)?currentUser.displayName||currentUser.username||currentRole:currentRole||'unknown';
     merged._syncUser=syncUser;
     merged._syncAction=_lastSyncAction||'auto-save';
@@ -3204,15 +3210,17 @@ async function syncToSheets(data){
     _lastSyncAction='auto-save';_lastSyncDetail='';
 
     const bodyStr=JSON.stringify(merged);
-    console.log('[SYNC] POST size:',bodyStr.length,'bytes, merged:',mergedItems.length,'items');
+    console.log('[SYNC] POST size:',bodyStr.length,'bytes, merged:',mergedItems.length,'items,',mergedAdvances.length,'advances');
+    if(bodyStr.length>4000000){console.warn('[SYNC] WARNING: Payload rất lớn (',Math.round(bodyStr.length/1024)+'KB) — có thể quá giới hạn Google Sheets');}
     const res=await fetch(GSHEET_API+'?action=save',{method:'POST',body:bodyStr,headers:{'Content-Type':'text/plain'},signal:AbortSignal.timeout(60000)});
     const r=await res.json();
     if(r.ok){
-      console.log('[SYNC] SUCCESS:',r.savedAt,r.itemCount,'items');
+      console.log('[SYNC] SUCCESS:',r.savedAt,r.itemCount,'items,',mergedAdvances.length,'advances');
       updateSyncUI('ok','☁️ Đã lưu '+new Date().toLocaleTimeString('vi-VN'));
       _syncRetryCount=0;
-      clearUnsynced(); // Xóa flag — data đã sync thành công
-      if(mergedItems.length>currentData.items.length)rerender();
+      clearUnsynced();
+      // v9: Rerender nếu items HOẶC advances thay đổi
+      if(mergedItems.length!==currentData.items.length||mergedAdvances.length!==currentData.advances.length)rerender();
     }else{
       console.error('[SYNC] Server error:',r.error);
       updateSyncUI('err','⚠️ Lỗi: '+(r.error||'server error'));
@@ -3257,7 +3265,7 @@ async function loadFromSheets(){
     console.log('[LOAD] Fetching from Sheets...');
     const res=await fetch(GSHEET_API+'?action=load',{signal:AbortSignal.timeout(30000)});
     const r=await res.json();
-    if(r.ok&&r.items&&r.items.length>0){
+    if(r.ok&&((r.items&&r.items.length>0)||(r.advances&&r.advances.length>0))){
       const remoteItems=r.items||[];
       const remoteAdvances=r.advances||[];
       const remoteBudgets=r.budgets||{};
@@ -3316,6 +3324,15 @@ async function loadFromSheets(){
         if(items.length<beforeFilter)console.log('[LOAD] Filtered',beforeFilter-items.length,'deleted items from remote');
       }
 
+      // v8: Merge deletedAdvIds từ remote
+      if(r.deletedAdvIds&&Array.isArray(r.deletedAdvIds)){
+        r.deletedAdvIds.forEach(id=>_deletedAdvIds.add(id));
+        saveDeletedAdvIds();
+        const beforeAdvFilter=advances.length;
+        advances=advances.filter(a=>!_deletedAdvIds.has(a.id));
+        if(advances.length<beforeAdvFilter)console.log('[LOAD] Filtered',beforeAdvFilter-advances.length,'deleted advances from remote');
+      }
+
       // v6: Merge cashBatches từ remote
       if(r.cashBatches&&Array.isArray(r.cashBatches)){
         const localBatchMap=new Map((cashBatches||[]).map(b=>[b.id,b]));
@@ -3333,9 +3350,9 @@ async function loadFromSheets(){
         console.log('[LOAD] CashBatches synced:',cashBatches.length);
       }
 
-      console.log('[LOAD] Merged: local='+prevCount+' remote='+remoteItems.length+' total='+items.length);
+      console.log('[LOAD] Merged: items local='+prevCount+' remote='+remoteItems.length+' total='+items.length+' | advances remote='+(remoteAdvances?remoteAdvances.length:0)+' total='+advances.length);
       _sheetsLoaded=true;
-      rerender();
+      rerender();renderAdvances();
     }else{
       console.log('[LOAD] No items from Sheets or ok=false');
       _sheetsLoaded=true;
