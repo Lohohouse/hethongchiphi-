@@ -61,7 +61,8 @@ const STAFF=[
 {code:'ĐG007',name:'Đặng Thành Hòa',cn:'鄧成和',dept:'Đóng gói'}
 ];
 
-const PAYERS=['Lập Nguyên','He Huan Shan','Kế Toán','NV tạm ứng'];
+const PAYERS=['Lập Nguyên','He Huan Shan','Kế Toán','NV tạm ứng','KT Bộ phận'];
+function isAdvPayer(p){return p==='NV tạm ứng'||p==='KT Bộ phận';}
 const STATUS={draft:{l:'Nháp',c:'st-draft'},pending:{l:'Chờ duyệt',c:'st-pending'},approved:{l:'Chờ nộp CT',c:'st-approved'},voucher:{l:'Đã nộp CT',c:'st-voucher'},boss_approved:{l:'Boss duyệt ✓',c:'st-boss'},paid:{l:'Hoàn tất',c:'st-paid'},rejected:{l:'Từ chối',c:'st-rejected'},returned:{l:'Đã hoàn trả',c:'st-paid'},recall_pending:{l:'Chờ thu hồi',c:'st-recall'},cashier_review:{l:'Thủ quỹ kiểm tra',c:'st-cashier'},cash_disbursed:{l:'Đã chi TM',c:'st-cash-disbursed'},cash_confirmed:{l:'Đã nhận tiền ✓',c:'st-cash-confirmed'}};
 const COLORS=['#3b82f6','#10b981','#f59e0b','#ec4899','#8b5cf6','#14b8a6','#f97316','#ef4444','#06b6d4','#84cc16','#a855f7','#e11d48','#0ea5e9','#65a30d','#d946ef','#f43f5e','#0891b2','#ca8a04','#7c3aed','#dc2626','#059669','#2563eb','#c026d3','#e879f9','#facc15','#4ade80','#fb923c','#38bdf8','#a3e635','#f472b6','#818cf8','#34d399','#fbbf24'];
 const MS=['01','02','03','04','05','06','07','08','09','10','11','12'];
@@ -375,8 +376,8 @@ function schedTrans(m){clearTimeout(transTimer);transTimer=setTimeout(async()=>{
 
   // Edit modal payer toggle
   document.getElementById('ePayer').addEventListener('change',function(){
-    document.getElementById('eAdvRow').style.display=this.value==='NV tạm ứng'?'':'none';
-    document.getElementById('eAdvAmtRow').style.display=this.value==='NV tạm ứng'?'':'none';
+    document.getElementById('eAdvRow').style.display=isAdvPayer(this.value)?'':'none';
+    document.getElementById('eAdvAmtRow').style.display=isAdvPayer(this.value)?'':'none';
   });
   document.getElementById('eVat').addEventListener('change',function(){document.getElementById('eVatNumRow').style.display=this.value==='Có'?'':'none';});
 })();
@@ -416,8 +417,8 @@ function rebuildTabs(){
     setTimeout(()=>{
       const ps=document.getElementById('fPayer_'+m);
       if(ps)ps.addEventListener('change',function(){
-        document.getElementById('fAdvRow_'+m).style.display=this.value==='NV tạm ứng'?'':'none';
-        document.getElementById('fAdvAmtRow_'+m).style.display=this.value==='NV tạm ứng'?'':'none';
+        document.getElementById('fAdvRow_'+m).style.display=isAdvPayer(this.value)?'':'none';
+        document.getElementById('fAdvAmtRow_'+m).style.display=isAdvPayer(this.value)?'':'none';
       });
       const vs=document.getElementById('fVat_'+m);
       if(vs)vs.addEventListener('change',function(){document.getElementById('fVatNumRow_'+m).style.display=this.value==='Có'?'':'none';});
@@ -458,7 +459,8 @@ function advLinkOpts(m){
   // Staff: chỉ thấy TƯ của bản thân. KT bộ phận/Manager/Boss/Cashier/Chief: thấy tất cả
   const onlySelf=currentRole==='staff';
   const myCode=currentUser?currentUser.staffCode:'';
-  const approvedAdv=advances.filter(a=>a.status==='approved'&&(!onlySelf||a.staffCode===myCode));
+  // Chỉ liên kết TƯ đã duyệt VÀ chưa hoàn trả (returned/rejected không liên kết được)
+  const approvedAdv=advances.filter(a=>a.status==='approved'&&a.status!=='returned'&&a.status!=='rejected'&&(!onlySelf||a.staffCode===myCode));
   return approvedAdv.map(a=>{
     const staff=STAFF.find(s=>s.code===a.staffCode);
     const sn=staff?staff.name:a.staffCode;
@@ -588,6 +590,7 @@ function buildMonth(m,year){
     <button id="qtab_boss_${m}" onclick="switchQTab('${m}','boss')" style="flex:1;padding:10px 6px;border:none;background:transparent;cursor:pointer;font-size:10px;font-weight:700;color:var(--g500);border-bottom:3px solid transparent;transition:all .2s;white-space:nowrap">👔 Chờ Boss 待老闆批 <span id="qBossCnt_${m}" style="font-size:9px;font-weight:800;background:var(--dl);color:var(--d);padding:1px 5px;border-radius:8px">0</span></button>
     <button id="qtab_pay_${m}" onclick="switchQTab('${m}','pay')" style="flex:1;padding:10px 6px;border:none;background:transparent;cursor:pointer;font-size:10px;font-weight:700;color:var(--g500);border-bottom:3px solid transparent;transition:all .2s;white-space:nowrap">💳 Chờ chi trả 待付款 <span id="qPayCnt_${m}" style="font-size:9px;font-weight:800;background:var(--dl);color:var(--d);padding:1px 5px;border-radius:8px">0</span></button>
     <button id="qtab_cash_${m}" onclick="switchQTab('${m}','cash')" style="flex:1;padding:10px 6px;border:none;background:transparent;cursor:pointer;font-size:10px;font-weight:700;color:var(--g500);border-bottom:3px solid transparent;transition:all .2s;white-space:nowrap">💰 Đợt TM 現金批次 <span id="mgrCashBatchCnt_${m}" style="font-size:9px;font-weight:800;background:var(--dl);color:var(--d);padding:1px 5px;border-radius:8px">0</span></button>
+    <button id="qtab_advr_${m}" onclick="switchQTab('${m}','advr')" style="flex:1;padding:10px 6px;border:none;background:transparent;cursor:pointer;font-size:10px;font-weight:700;color:var(--g500);border-bottom:3px solid transparent;transition:all .2s;white-space:nowrap">💸 Hoàn trả NV 還款 <span id="mgrAdvBatchCnt_${m}" style="font-size:9px;font-weight:800;background:var(--dl);color:var(--d);padding:1px 5px;border-radius:8px">0</span></button>
   </div>
 
   <!-- Tab: Nháp (Manager) -->
@@ -701,6 +704,18 @@ function buildMonth(m,year){
       </div>
     </div>
   </div>
+
+  <!-- Tab: Đợt hoàn trả NV -->
+  <div id="qpanel_advr_${m}" style="display:none">
+    <div style="padding:8px 12px;background:linear-gradient(135deg,rgba(236,72,153,.05),transparent)">
+      <h3 style="margin:0;font-size:12px;color:#db2777">Đợt hoàn trả NV 還款批次</h3>
+    </div>
+    <div id="mgrAdvBatchCard_${m}">
+      <div style="overflow-x:auto;max-height:60vh;overflow-y:auto;position:relative">
+        <div id="mgrAdvBatchSummary_${m}" style="padding:10px"></div>
+      </div>
+    </div>
+  </div>
   </div>`:''}
 
   <!-- Accountant/Staff: Tab bar workflow (5 tabs) -->
@@ -794,6 +809,13 @@ function buildMonth(m,year){
   </div>
   </div>`:''}
 
+  <!-- Employee: Advance reimbursement batches -->
+  ${(isAccountant()||isStaff())?`<div class="cd" style="border-left-color:#db2777"><div class="cd-h" style="background:linear-gradient(135deg,rgba(236,72,153,.04),transparent)"><h2 style="color:#db2777">Đợt hoàn trả NV 還款批次 <span id="empAdvBatchCnt_${m}" style="font-size:11px;font-weight:800;color:var(--d);background:var(--dl);padding:2px 8px;border-radius:10px"></span></h2></div>
+  <div style="overflow-x:auto;max-height:350px;overflow-y:auto;position:relative;border:1px solid #e5e7eb;border-radius:8px;margin:6px">
+    <div id="empAdvBatchSummary_${m}" style="padding:10px"></div>
+  </div>
+  <div id="empAdvBatchEmpty_${m}" class="empty" style="display:none">Chưa có đợt hoàn trả</div></div>`:''}
+
   <!-- Boss/TQ/KTT: pending table -->
   ${(isBoss()||isTQorKTT)?`<div class="cd" style="border-left-color:var(--w)">
   <div class="batch-hdr" data-m="${m}"><span class="sel-count"></span>${buildBatchBtns(m)}</div>
@@ -849,6 +871,7 @@ function buildMonth(m,year){
     <select id="fltStaff_${m}" onchange="renderM('${m}')" style="padding:3px 6px;border:1px solid var(--g300);border-radius:4px;font-size:10px"><option value="">Người lập 經辦人</option>${staffOpts()}</select>
     <select id="fltPay_${m}" onchange="renderM('${m}')" style="padding:3px 6px;border:1px solid var(--g300);border-radius:4px;font-size:10px"><option value="">TT toán 付款狀態</option><option value="Chưa chi">Chưa chi</option><option value="Đã chi">Đã chi</option><option value="Đã cọc">Đã cọc</option></select>
     <select id="fltSt_${m}" onchange="renderM('${m}')" style="padding:3px 6px;border:1px solid var(--g300);border-radius:4px;font-size:10px"><option value="">Trạng thái 狀態</option>${getStatusFilterOpts()}</select>
+    <select id="fltMethod_${m}" onchange="renderM('${m}')" style="padding:3px 6px;border:1px solid var(--g300);border-radius:4px;font-size:10px"><option value="">PT thanh toán 方式</option><option value="Tiền mặt">Tiền mặt</option><option value="Chuyển khoản">Chuyển khoản</option></select>
     <select id="fltPayer_${m}" onchange="renderM('${m}')" style="padding:3px 6px;border:1px solid var(--g300);border-radius:4px;font-size:10px"><option value="">Người chi 付款人</option>${payerOpts()}</select>
     <select id="fltSub_${m}" onchange="renderM('${m}')" style="padding:3px 6px;border:1px solid var(--g300);border-radius:4px;font-size:10px"><option value="">Nộp phiếu 提交</option><option value="yes">Đã nộp</option><option value="no">Chưa nộp</option></select>
     <button class="btn btn-sm" style="background:rgba(220,38,38,.05);color:var(--d);font-size:9px;padding:3px 8px" onclick="clearFilters('${m}')">✕ Xóa lọc</button>
@@ -954,9 +977,9 @@ async function addItem(m){
   const staffCode=document.getElementById('fStaff_'+m).value;
   if(!staffCode){toast('Chọn người lập phiếu');return;}
   const payer=document.getElementById('fPayer_'+m).value;
-  const advStaff=payer==='NV tạm ứng'?document.getElementById('fAdvStaff_'+m).value:'';
-  const advAmt=payer==='NV tạm ứng'?parseAmt(document.getElementById('fAdvAmt_'+m).value):0;
-  if(payer==='NV tạm ứng'&&!advStaff){toast('Chọn NV tạm ứng');return;}
+  const advStaff=isAdvPayer(payer)?document.getElementById('fAdvStaff_'+m).value:'';
+  const advAmt=isAdvPayer(payer)?parseAmt(document.getElementById('fAdvAmt_'+m).value):0;
+  if(isAdvPayer(payer)&&!advStaff){toast('Chọn NV tạm ứng');return;}
   const method=document.getElementById('fMethod_'+m).value;
   const note=document.getElementById('fNote_'+m).value.trim();
   const noteCn=document.getElementById('fNoteCn_'+m).value.trim();
@@ -1017,7 +1040,7 @@ function toggleTrkDetail(detId,m){
 const _activeQTab={};
 function switchQTab(m,tab){
   _activeQTab[m]=tab;
-  const tabs=['draft','pend','send','boss','pay','cash'];
+  const tabs=['draft','pend','send','boss','pay','cash','advr'];
   tabs.forEach(t=>{
     const panel=document.getElementById('qpanel_'+t+'_'+m);
     const btn=document.getElementById('qtab_'+t+'_'+m);
@@ -1095,9 +1118,10 @@ function buildBatchBtns(m,ctx){
   if(isMgr())b+='<button class="btn btn-sm" style="background:rgba(100,116,139,.08);color:#64748b" onclick="batchToggleHidden(\''+m+'\',true)">🔒 Ẩn 隱藏</button><button class="btn btn-sm" style="background:rgba(100,116,139,.06);color:#64748b" onclick="batchToggleHidden(\''+m+'\',false)">🔓 Hiện 顯示</button>';
   if(!isCashier()&&!isChiefAccountant()&&!isBoss())b+='<button class="btn btn-sm" style="background:rgba(234,88,12,.08);color:#c2410c" onclick="batchRecall(\''+m+'\')">↩️ Thu hồi 撤回</button>';
   if(canApprove()&&!isBoss())b+='<button class="btn btn-sm" style="background:rgba(22,163,74,.06);color:#15803d" onclick="batchApproveRecall(\''+m+'\')">✓ Duyệt thu hồi 批准撤回</button>';
-  // Main table only: payStatus + lock/unlock + CSV export
+  // Main table only: payStatus + lock/unlock + CSV export + advance reimburse
   if(ctx==='main'){
     b+='<button class="btn btn-sm" style="background:rgba(5,150,105,.06);color:#059669;border:1px solid rgba(5,150,105,.12)" onclick="batchChangePayStatus(\''+m+'\',\'Đã chi\')">💰 Đã chi 已付</button>';
+    if(isMgr())b+='<button class="btn btn-sm" style="background:rgba(236,72,153,.06);color:#db2777;border:1px solid rgba(236,72,153,.15)" onclick="batchAdvReimburse(\''+m+'\')">💸 Hoàn trả NV 還款員工</button>';
     if(isAccountant()||isMgr()||isBoss())b+='<button class="btn btn-sm" style="background:rgba(15,23,42,.06);color:#1e293b;border:1px solid rgba(15,23,42,.12)" onclick="batchLock(\''+m+'\')">🔐 Khóa đơn 鎖定</button>';
     if(isMgr()||isBoss())b+='<button class="btn btn-sm" style="background:rgba(100,116,139,.06);color:#64748b;border:1px solid rgba(100,116,139,.12)" onclick="batchUnlock(\''+m+'\')">🔓 Mở khóa 解鎖</button>';
   }
@@ -1429,7 +1453,7 @@ function printAdvSlip(id){
   const usedAmt=linkedExp.reduce((s,e)=>s+e.amount,0);
   const cashRet=a.cashReturned||0;
   const remaining=a.amount-usedAmt-cashRet;
-  const fD=d=>{if(!d)return'____/____/______';const p=d.split('-');return p[2]+'/'+p[1]+'/'+p[0];};
+  const fD=d=>{if(!d)return'____/____/______';const s=String(d).slice(0,10);const p=s.split('-');if(p.length!==3||p[0].length!==4)return s;return p[2]+'/'+p[1]+'/'+p[0];};
   const amtWords=numberToVietnameseWords(a.amount);
 
   const w=window.open('','_blank','width=900,height=700');
@@ -1562,11 +1586,16 @@ function numberToVietnameseWords(n){
 function renderAdvances(){
   const tbody=document.getElementById('advTb');
   const emptyEl=document.getElementById('advEmpty');
-  // Staff filter
+  // Staff filter: NV chỉ thấy TƯ của mình; KT BP + QL/Boss thấy tất cả (trừ draft NV khác)
   let dispAdvances=advances;
   if(isStaff()&&currentUser&&currentUser.staffCode){
     dispAdvances=advances.filter(a=>a.staffCode===currentUser.staffCode);
+  } else if(isAccountant()||isMgr()){
+    // KT BP, QL, Boss: thấy tất cả NGOẠI TRỪ draft của NV khác (draft chỉ NV tự thấy)
+    dispAdvances=advances.filter(a=>a.status!=='draft');
   }
+  // Advance-specific status labels (khác với expense STATUS)
+  const ADV_ST={draft:{l:'Nháp',c:'st-draft'},pending:{l:'Chờ duyệt',c:'st-pending'},approved:{l:'Đã duyệt',c:'st-approved'},returned:{l:'Đã hoàn trả',c:'st-paid'},rejected:{l:'Từ chối',c:'st-rejected'}};
 
   if(!dispAdvances.length){
     if(tbody)tbody.innerHTML='';
@@ -1578,7 +1607,7 @@ function renderAdvances(){
         const staff=STAFF.find(s=>s.code===a.staffCode);
         const sn=staff?staff.name+' '+staff.cn:a.staffCode;
         const reqD=fmtDate(a.requestDate);
-        const st=STATUS[a.status]||{l:a.status,c:'st-draft'};
+        const st=ADV_ST[a.status]||STATUS[a.status]||{l:a.status,c:'st-draft'};
         const linkedExp=items.filter(e=>e.advanceId===a.id);
         const usedAmt=linkedExp.reduce((s,e)=>s+e.amount,0)+(a.cashReturned||0);
         const remaining=a.amount-usedAmt;
@@ -1614,7 +1643,7 @@ function renderAdvances(){
   if(trk){
     const g={pending:[],approved:[],returned:[],rejected:[]};
     advances.forEach(a=>{if(g[a.status])g[a.status].push(a);});
-    const labels={pending:{l:'Chờ duyệt 待審批',cl:'#fbbf24'},approved:{l:'⚠ Đã duyệt, chưa hoàn trả 已批准未歸還',cl:'#f87171'},returned:{l:'Đã hoàn trả 已歸還 ✓',cl:'#34d399'},rejected:{l:'Từ chối 退回',cl:'#f87171'}};
+    const labels={pending:{l:'Chờ duyệt 待審批',cl:'#fbbf24'},approved:{l:'⚠ Đã duyệt, chưa hoàn trả 已批准未歸還',cl:'#f87171'},returned:{l:'Đã hoàn trả 已歸還 ✓',cl:'#34d399'},rejected:{l:'Từ chối 退回',cl:'#f87171'},draft:{l:'Nháp 草稿',cl:'#94a3b8'}};
     let h='<thead><tr><th style="text-align:left;width:220px">Trạng thái</th><th>SL</th><th style="text-align:right">Tổng tiền</th><th style="text-align:right">Còn lại</th><th style="text-align:left">Chi tiết</th></tr></thead><tbody>';
     let hasData=false;
     for(const[k,arr]of Object.entries(g)){
@@ -1652,8 +1681,8 @@ function openApproval(id){
       h+=`<div style="background:#eff6ff;padding:6px 8px;border-radius:6px;margin:4px 0;border-left:3px solid var(--p)"><b>🔗 Tạm ứng:</b> ${linkedAdv.code||'--'} | <b>Tổng TƯ:</b> ${fmtV(linkedAdv.amount)} | <b>Đã dùng:</b> ${fmtV(usedTotal)} | <b style="color:#f59e0b">Còn lại: ${fmtV(linkedAdv.amount-usedTotal)}</b></div>`;
     }
   }
-  if(e.payer==='NV tạm ứng'){
-    h+=`<div class="adv-info"><b>NV tạm ứng:</b> ${advStaffObj?advStaffObj.name+' '+advStaffObj.cn:e.advStaff} | <b>Số tiền tạm ứng:</b> ${fmtV(e.advAmt||0)}`;
+  if(isAdvPayer(e.payer)){
+    h+=`<div class="adv-info"><b>${e.payer}:</b> ${advStaffObj?advStaffObj.name+' '+advStaffObj.cn:e.advStaff} | <b>Số tiền tạm ứng:</b> ${fmtV(e.advAmt||0)}`;
     if(e.advPaid) h+=` | <span style="color:var(--s);font-weight:600">Đã hoàn trả NV ✓</span>`;
     else h+=` | <span style="color:var(--w);font-weight:600">Chưa hoàn trả NV</span>`;
     h+=`</div>`;
@@ -1696,7 +1725,7 @@ function openApproval(id){
   if(e.paymentHistory&&e.paymentHistory.length){
     h+='<div style="margin-top:8px;padding:8px 12px;background:var(--g50);border-radius:8px;font-size:11px"><b>📋 Lịch sử thao tác:</b><div style="margin-top:4px">';
     e.paymentHistory.forEach(ph=>{
-      const labels={cash_disbursed:'💰 Chi TM',cash_confirmed:'✓ Nhận tiền',ck_paid:'🏦 Chi CK',cashier_rejected:'↩ Trả lại',prepaid:'💵 QL ứng trước',approved:'✅ Duyệt',voucher:'📋 Nộp CT',boss_approved:'⭐ Boss duyệt',sent:'📤 Gửi duyệt',boss_approve_order:'⭐ Boss duyệt lệnh',locked:'🔐 Khóa đơn',unlocked:'🔓 Mở khóa',method_changed:'🔄 Đổi PT thanh toán',submitted:'📤 Nộp phiếu'};
+      const labels={cash_disbursed:'💰 Chi TM',cash_confirmed:'✓ Nhận tiền',ck_paid:'🏦 Chi CK',cashier_rejected:'↩ Trả lại',prepaid:'💵 QL ứng trước',approved:'✅ Duyệt',voucher:'📋 Nộp CT',boss_approved:'⭐ Boss duyệt',sent:'📤 Gửi duyệt',boss_approve_order:'⭐ Boss duyệt lệnh',locked:'🔐 Khóa đơn',unlocked:'🔓 Mở khóa',method_changed:'🔄 Đổi PT thanh toán',submitted:'📤 Nộp phiếu',adv_reimburse_batch:'💸 Tạo đợt hoàn trả',adv_reimburse_confirmed:'✓ NV xác nhận nhận tiền'};
       h+='<div style="padding:2px 0;border-bottom:1px solid var(--g200)"><span style="color:var(--p);font-weight:600">'+(labels[ph.action]||ph.action)+'</span> — '+ph.by+' ('+ph.date+')';
       if(ph.note)h+=' <span style="color:var(--g500)">'+ph.note+'</span>';
       h+='</div>';
@@ -1710,6 +1739,16 @@ function openApproval(id){
       h+='<div style="margin-top:6px;padding:8px 12px;background:rgba(124,58,237,.04);border-radius:8px;font-size:11px;border-left:3px solid #7c3aed">';
       h+='<b>Đợt TT #'+batch.id+'</b> | Tổng: '+fmtV(batch.total)+' | Người nhận: '+staffDisplayName(batch.recipient);
       h+=' | TT: '+(batch.status==='confirmed'?'<span style="color:var(--s)">Đã nhận ✓</span>':'<span style="color:#ea580c">Chờ xác nhận</span>');
+      h+='</div>';
+    }
+  }
+  // Advance reimbursement batch info
+  if(e.advBatchId){
+    const abatch=cashBatches.find(b=>b.id===e.advBatchId&&b.type==='adv_reimburse');
+    if(abatch){
+      h+='<div style="margin-top:6px;padding:8px 12px;background:rgba(236,72,153,.04);border-radius:8px;font-size:11px;border-left:3px solid #db2777">';
+      h+='<b>💸 Đợt hoàn trả #'+abatch.id+'</b> | Tổng: '+fmtV(abatch.total)+' | NV nhận: '+staffDisplayName(abatch.recipient);
+      h+=' | TT: '+(abatch.status==='confirmed'||e.advPaid?'<span style="color:var(--s)">Đã xác nhận ✓</span>':'<span style="color:#db2777">Chờ NV xác nhận</span>');
       h+='</div>';
     }
   }
@@ -1745,7 +1784,7 @@ function openApproval(id){
     else h+=`<span style="font-size:11px;color:#059669;padding:4px 8px">Chờ quản lý xác nhận nhận tiền...</span>`;
   }
   // Paid: manager/boss can confirm advance repayment
-  if(e.status==='paid'&&e.payer==='NV tạm ứng'&&!e.advPaid&&isMgr()){h+=`<button class="btn btn-w" onclick="confirmAdvPaid(${id})">Xác nhận hoàn trả NV</button>`;}
+  if(e.status==='paid'&&isAdvPayer(e.payer)&&!e.advPaid&&isMgr()){h+=`<button class="btn btn-w" onclick="confirmAdvPaid(${id})">Xác nhận hoàn trả NV</button>`;}
   if(e.status==='rejected')h+=`<button class="btn btn-p" onclick="chgSt(${id},'draft')">Làm lại</button>`;
   // Thu hồi: anyone can request (except draft/paid/recall_pending)
   if(e.status!=='draft'&&e.status!=='paid'&&e.status!=='recall_pending')h+=`<button class="btn" style="background:rgba(234,88,12,.08);color:#c2410c;border:1px solid rgba(234,88,12,.12)" onclick="requestRecall(${id})">↩️ Thu hồi 撤回</button>`;
@@ -1794,7 +1833,89 @@ function batchKttReturn(m){
   saveData();syncImmediate('KTT-trả-lại-hàng-loạt','KTT trả lại '+sel.length);renderM(m);toast('KTT đã trả lại '+sel.length+' đơn');
 }
 function returnItem(id){const r=prompt('Lý do trả về:');if(!r||!r.trim())return;const e=items.find(x=>x.id===id);if(!e)return;e.status='rejected';e.rejectedReason='[Boss trả về] '+r.trim();e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'boss_returned',by:currentUser?currentUser.name:'',date:new Date().toISOString().slice(0,10),note:'Boss trả về: '+r.trim()});closeM('approveModal');saveData();syncImmediate('boss-trả-về',e.code);rerender();toast('Đã trả về');}
-function confirmAdvPaid(id){if(!confirm('Xác nhận đã hoàn trả tiền tạm ứng cho nhân viên?'))return;const e=items.find(x=>x.id===id);if(!e)return;e.advPaid=true;closeM('approveModal');saveData();syncImmediate('xac-nhan-hoan-tra',e.code);rerender();toast('Đã xác nhận hoàn trả');}
+function confirmAdvPaid(id){if(!confirm('Xác nhận đã hoàn trả tiền tạm ứng cho nhân viên?'))return;const e=items.find(x=>x.id===id);if(!e)return;e.advPaid=true;e.advPaidDate=new Date().toISOString().slice(0,10);e.advConfirmedBy=currentUser?currentUser.name:'';closeM('approveModal');saveData();syncImmediate('xac-nhan-hoan-tra',e.code);rerender();toast('Đã xác nhận hoàn trả');}
+
+// ============ ADVANCE REIMBURSEMENT BATCH ============
+function batchAdvReimburse(m){
+  if(!isMgr())return;
+  const sel=getSel(m).filter(e=>isAdvPayer(e.payer)&&e.status==='paid'&&!e.advPaid);
+  if(!sel.length){toast('Chọn các khoản NV tạm ứng/KT BP đã hoàn tất & chưa hoàn trả');return;}
+  // Group by advStaff
+  const byStaff={};sel.forEach(e=>{const k=e.advStaff||'unknown';if(!byStaff[k])byStaff[k]=[];byStaff[k].push(e);});
+  const staffKeys=Object.keys(byStaff);
+  const total=sel.reduce((s,e)=>s+e.amount,0);
+  let h='<h3>💸 Tạo đợt hoàn trả NV 建立還款批次</h3>';
+  h+='<div style="font-size:12px;margin-bottom:12px">';
+  h+='<div><b>Số phiếu:</b> '+sel.length+' khoản</div>';
+  h+='<div><b>Tổng tiền:</b> <span style="color:#db2777;font-size:15px;font-weight:700">'+fmtV(total)+'</span></div>';
+  if(staffKeys.length>1){h+='<div style="margin-top:4px;color:#b45309;font-size:11px">⚠ Lưu ý: Đang chọn nhiều NV khác nhau. Mỗi NV sẽ tạo 1 đợt riêng.</div>';}
+  h+='<div style="margin-top:8px"><b>Chi tiết theo NV:</b></div>';
+  staffKeys.forEach(k=>{
+    const sObj=STAFF.find(s=>s.code===k);
+    const grp=byStaff[k];
+    const grpTotal=grp.reduce((s,e)=>s+e.amount,0);
+    h+='<div style="background:rgba(236,72,153,.04);border:1px solid rgba(236,72,153,.15);border-radius:6px;padding:6px 8px;margin-top:6px">';
+    h+='<div style="font-weight:700;color:#db2777">👤 '+(sObj?sObj.name:k)+' — '+fmtV(grpTotal)+'</div>';
+    h+='<div style="font-size:10px;max-height:100px;overflow-y:auto;margin-top:4px">';
+    grp.forEach(e=>{h+='<div>'+e.code+' | '+e.type+' | '+fmtV(e.amount)+'</div>';});
+    h+='</div></div>';
+  });
+  h+='</div>';
+  h+='<div class="fg" style="margin-bottom:10px"><label>Ghi chú đợt hoàn trả</label><input type="text" id="advBatchNote" placeholder="Ghi chú (nếu có)"/></div>';
+  h+='<div class="mact">';
+  h+='<button class="btn btn-o" onclick="closeM(\'approveModal\')">Huỷ</button>';
+  h+='<button class="btn" style="background:#db2777;color:#fff" onclick="createAdvBatch(\''+m+'\')">💸 Xác nhận hoàn trả</button>';
+  h+='</div>';
+  document.getElementById('amBody').innerHTML=h;
+  document.getElementById('approveModal').classList.add('show');
+}
+function createAdvBatch(m){
+  const sel=getSel(m).filter(e=>isAdvPayer(e.payer)&&e.status==='paid'&&!e.advPaid);
+  if(!sel.length){toast('Không có mục hợp lệ');return;}
+  const note=document.getElementById('advBatchNote')?.value||'';
+  const today=new Date().toISOString().slice(0,10);
+  // Group by advStaff → create one batch per staff
+  const byStaff={};sel.forEach(e=>{const k=e.advStaff||'unknown';if(!byStaff[k])byStaff[k]=[];byStaff[k].push(e);});
+  const createdBatches=[];
+  Object.keys(byStaff).forEach(staffCode=>{
+    const grp=byStaff[staffCode];
+    const grpTotal=grp.reduce((s,e)=>s+e.amount,0);
+    const batchId=cashBatchNextId++;
+    const itemIds=grp.map(e=>e.id);
+    cashBatches.push({
+      id:batchId,date:today,itemIds:itemIds,total:grpTotal,
+      recipient:staffCode,note:note,type:'adv_reimburse',
+      disbursedBy:currentUser?currentUser.name:'',
+      status:'pending_confirm',confirmedDate:'',confirmedBy:''
+    });
+    grp.forEach(e=>{
+      e.advBatchId=batchId;e.advReimburseStatus='pending';
+      e.paymentHistory=(e.paymentHistory||[]);
+      e.paymentHistory.push({action:'adv_reimburse_batch',by:currentUser?currentUser.name:'',date:today,note:'Đợt hoàn trả NV #'+batchId+' → '+staffDisplayName(staffCode)});
+      e.selected=false;delete e._selCtx;
+    });
+    createdBatches.push({id:batchId,staff:staffCode,total:grpTotal,count:grp.length});
+  });
+  closeM('approveModal');saveData();syncImmediate('hoan-tra-NV','Đợt hoàn trả #'+createdBatches.map(b=>b.id).join(','));renderM(m);
+  toast('Tạo '+createdBatches.length+' đợt hoàn trả NV: '+createdBatches.map(b=>'#'+b.id+' '+fmtV(b.total)).join(', '));
+}
+function confirmAdvBatchReceived(batchId,m){
+  const batch=cashBatches.find(b=>b.id===batchId&&b.type==='adv_reimburse');
+  if(!batch){toast('Không tìm thấy đợt hoàn trả');return;}
+  const bItems=batch.itemIds.map(id=>items.find(x=>x.id===id)).filter(Boolean);
+  const pending=bItems.filter(it=>!it.advPaid);
+  if(!pending.length){toast('Đợt này đã được xác nhận');return;}
+  if(!confirm('Xác nhận đã nhận tiền hoàn trả '+pending.length+' khoản từ Đợt #'+batchId+'?\n\nTổng: '+fmtV(batch.total)))return;
+  const today=new Date().toISOString().slice(0,10);
+  pending.forEach(e=>{
+    e.advPaid=true;e.advPaidDate=today;e.advConfirmedBy=currentUser?currentUser.name:'';
+    e.advReimburseStatus='confirmed';
+    e.paymentHistory=(e.paymentHistory||[]);
+    e.paymentHistory.push({action:'adv_reimburse_confirmed',by:currentUser?currentUser.name:'',date:today,note:'Xác nhận nhận tiền hoàn trả Đợt #'+batchId});
+  });
+  batch.status='confirmed';batch.confirmedDate=today;batch.confirmedBy=currentUser?currentUser.name:'';
+  saveData();syncImmediate('xn-hoan-tra-NV','Đợt #'+batchId);renderM(m);toast('Đã xác nhận nhận tiền hoàn trả Đợt #'+batchId+' ✓');
+}
 
 // ============ THU HỒI (Recall) ============
 function requestRecall(id){
@@ -2008,8 +2129,8 @@ function openEdit(id){
   document.getElementById('ePaySt').value=e.payStatus||'Chưa chi';
   document.getElementById('ePerson').innerHTML=staffOpts();document.getElementById('ePerson').value=e.staffCode;
   document.getElementById('ePayer').value=e.payer||'Lập Nguyên';
-  document.getElementById('eAdvRow').style.display=e.payer==='NV tạm ứng'?'':'none';
-  document.getElementById('eAdvAmtRow').style.display=e.payer==='NV tạm ứng'?'':'none';
+  document.getElementById('eAdvRow').style.display=isAdvPayer(e.payer)?'':'none';
+  document.getElementById('eAdvAmtRow').style.display=isAdvPayer(e.payer)?'':'none';
   document.getElementById('eAdvStaff').innerHTML=staffOpts();document.getElementById('eAdvStaff').value=e.advStaff||'';
   document.getElementById('eAdvAmt').value=e.advAmt?e.advAmt.toLocaleString('vi-VN'):'';
   document.getElementById('eMethod').value=e.method||'Tiền mặt';
@@ -2028,8 +2149,8 @@ function saveEdit(){
   const cat=CATS.find(c=>c.vn===e.type);e.typeCn=cat?cat.cn:'';
   e.amount=parseAmt(document.getElementById('eAmt').value);e.payStatus=document.getElementById('ePaySt').value;
   e.staffCode=document.getElementById('ePerson').value;e.payer=document.getElementById('ePayer').value;
-  e.advStaff=e.payer==='NV tạm ứng'?document.getElementById('eAdvStaff').value:'';
-  e.advAmt=e.payer==='NV tạm ứng'?parseAmt(document.getElementById('eAdvAmt').value):0;
+  e.advStaff=isAdvPayer(e.payer)?document.getElementById('eAdvStaff').value:'';
+  e.advAmt=isAdvPayer(e.payer)?parseAmt(document.getElementById('eAdvAmt').value):0;
   e.method=document.getElementById('eMethod').value;e.vat=document.getElementById('eVat').value;
   e.vatNum=e.vat==='Có'?document.getElementById('eVatNum').value.trim():'';
   e.note=document.getElementById('eNote').value.trim();e.noteCn=document.getElementById('eNoteCn').value.trim();e.remark=(document.getElementById('eRemark').value||'').trim();
@@ -2200,7 +2321,7 @@ function batchChangePayStatus(m,newStatus){
   saveData();renderM(m);toast('Đã cập nhật '+sel.length+' đơn → '+newStatus);
 }
 function clearFilters(m){
-  ['fltType_','fltSt_','fltPay_','fltPayer_','fltSub_','fltStaff_'].forEach(f=>{const el=document.getElementById(f+m);if(el)el.value='';});
+  ['fltType_','fltSt_','fltPay_','fltMethod_','fltPayer_','fltSub_','fltStaff_'].forEach(f=>{const el=document.getElementById(f+m);if(el)el.value='';});
   ['fltQ_','fltDateFrom_','fltDateTo_'].forEach(f=>{const el=document.getElementById(f+m);if(el)el.value='';});
   renderM(m);
 }
@@ -2241,8 +2362,8 @@ function renderM(m){
     if(e.voucherDate)wfDate+='<div style="font-size:8px;color:#4f46e5;margin-top:1px">Nộp CT: '+fmtDate(e.voucherDate)+'</div>';
     if(e.paidDate)wfDate+='<div style="font-size:8px;color:#059669;margin-top:1px">Chi: '+fmtDate(e.paidDate)+'</div>';
     const prepaidTag=e.prepaid?'<div style="margin-top:3px;background:rgba(5,150,105,.06);color:#059669;padding:3px 8px;border-radius:6px;font-size:9px;font-weight:700;border:1px solid rgba(5,150,105,.15)">💵 QL đã ứng<br><span style="font-weight:500">'+e.prepaidBy+' — '+fmtDate(e.prepaidDate)+'</span></div>':'';
-    const qAdvObj=e.payer==='NV tạm ứng'&&e.advStaff?STAFF.find(s=>s.code===e.advStaff):null;
-    const qAdvTag=e.payer==='NV tạm ứng'?'<div style="margin-top:3px;background:'+(e.advPaid?'rgba(16,185,129,.15)':'rgba(251,191,36,.15)')+';color:'+(e.advPaid?'#34d399':'#fbbf24')+';padding:3px 8px;border-radius:6px;font-size:9px;font-weight:600;border:1px solid '+(e.advPaid?'rgba(110,231,183,.3)':'rgba(252,211,77,.3)')+'">💰 TƯ: '+(qAdvObj?qAdvObj.name:e.advStaff)+' | '+fmtV(e.advAmt||0)+(e.advPaid?' ✓':' ✗')+'</div>':'';
+    const qAdvObj=isAdvPayer(e.payer)&&e.advStaff?STAFF.find(s=>s.code===e.advStaff):null;
+    const qAdvTag=isAdvPayer(e.payer)?'<div style="margin-top:3px;background:'+(e.advPaid?'rgba(16,185,129,.15)':'rgba(251,191,36,.15)')+';color:'+(e.advPaid?'#34d399':'#fbbf24')+';padding:3px 8px;border-radius:6px;font-size:9px;font-weight:600;border:1px solid '+(e.advPaid?'rgba(110,231,183,.3)':'rgba(252,211,77,.3)')+'">💰 TƯ: '+(qAdvObj?qAdvObj.name:e.advStaff)+' | '+fmtV(e.advAmt||0)+(e.advPaid?' ✓':' ✗')+'</div>':'';
     return '<tr style="cursor:pointer" onclick="if(!event.target.closest(\'input,button,.bi,.st\')){openApproval('+e.id+')}">'+
       '<td><input type="checkbox" '+(e.selected&&e._selCtx===_currentQCtx?'checked':'')+' onchange="event.stopPropagation();toggleOne('+e.id+',\''+_currentQCtx+'\')"/></td>'+
       '<td style="text-align:center;color:var(--g400);font-size:10px">'+(i+1)+'</td>'+
@@ -2267,8 +2388,8 @@ function renderM(m){
     if(e.approvedDate)wfDate+='<div style="font-size:8px;color:#059669;margin-top:1px">Duyệt: '+fmtDate(e.approvedDate)+'</div>';
     if(e.voucherDate)wfDate+='<div style="font-size:8px;color:#4f46e5;margin-top:1px">Nộp CT: '+fmtDate(e.voucherDate)+'</div>';
     const prepaidTag=e.prepaid?'<div style="margin-top:3px;background:rgba(5,150,105,.06);color:#059669;padding:3px 8px;border-radius:6px;font-size:9px;font-weight:700;border:1px solid rgba(5,150,105,.15)">💵 QL đã ứng<br><span style="font-weight:500">'+e.prepaidBy+' — '+fmtDate(e.prepaidDate)+'</span></div>':'';
-    const qAdvObj=e.payer==='NV tạm ứng'&&e.advStaff?STAFF.find(s=>s.code===e.advStaff):null;
-    const qAdvTag=e.payer==='NV tạm ứng'?'<div style="margin-top:3px;background:'+(e.advPaid?'rgba(16,185,129,.15)':'rgba(251,191,36,.15)')+';color:'+(e.advPaid?'#34d399':'#fbbf24')+';padding:3px 8px;border-radius:6px;font-size:9px;font-weight:600;border:1px solid '+(e.advPaid?'rgba(110,231,183,.3)':'rgba(252,211,77,.3)')+'">💰 TƯ: '+(qAdvObj?qAdvObj.name:e.advStaff)+' | '+fmtV(e.advAmt||0)+(e.advPaid?' ✓':' ✗')+'</div>':'';
+    const qAdvObj=isAdvPayer(e.payer)&&e.advStaff?STAFF.find(s=>s.code===e.advStaff):null;
+    const qAdvTag=isAdvPayer(e.payer)?'<div style="margin-top:3px;background:'+(e.advPaid?'rgba(16,185,129,.15)':'rgba(251,191,36,.15)')+';color:'+(e.advPaid?'#34d399':'#fbbf24')+';padding:3px 8px;border-radius:6px;font-size:9px;font-weight:600;border:1px solid '+(e.advPaid?'rgba(110,231,183,.3)':'rgba(252,211,77,.3)')+'">💰 TƯ: '+(qAdvObj?qAdvObj.name:e.advStaff)+' | '+fmtV(e.advAmt||0)+(e.advPaid?' ✓':' ✗')+'</div>':'';
     return '<tr style="cursor:pointer" onclick="if(!event.target.closest(\'input,button,.bi\')){openApproval('+e.id+')}">'+
       '<td><input type="checkbox" '+(e.selected&&e._selCtx===_currentQCtx?'checked':'')+' onchange="event.stopPropagation();toggleOne('+e.id+',\''+_currentQCtx+'\')"/></td>'+
       '<td style="text-align:center;color:var(--g400);font-size:10px">'+(i+1)+'</td>'+
@@ -2385,6 +2506,49 @@ function renderM(m){
         mgrCBDiv.innerHTML=cbH;
       }
     }
+    // Advance reimbursement batch summary (Manager)
+    const mgrABDiv=document.getElementById('mgrAdvBatchSummary_'+m);
+    const mgrABCnt=document.getElementById('mgrAdvBatchCnt_'+m);
+    if(mgrABDiv){
+      const advBatches=cashBatches.filter(b=>b.type==='adv_reimburse'&&b.itemIds.some(id=>{const it=items.find(x=>x.id===id);return it&&it.date.startsWith(year+'-'+m);}));
+      const pendingAdvB=advBatches.filter(b=>b.status!=='confirmed');
+      if(mgrABCnt)mgrABCnt.textContent=pendingAdvB.length||'0';
+      if(!advBatches.length){mgrABDiv.innerHTML='<div class="empty">Chưa có đợt hoàn trả NV</div>';}
+      else{
+        let abH='<table style="width:100%;font-size:11px"><thead><tr>'+
+          '<th style="width:30px"></th><th>Đợt</th><th>Ngày</th><th>Người tạo</th><th>NV nhận</th><th style="text-align:center">SL</th><th style="text-align:right">Tổng tiền</th><th style="text-align:center">Trạng thái</th><th style="width:100px"></th>'+
+          '</tr></thead><tbody>';
+        advBatches.forEach(b=>{
+          const bItems=b.itemIds.map(id=>items.find(x=>x.id===id)).filter(Boolean);
+          const allConfirmed=b.status==='confirmed'||bItems.every(it=>it.advPaid);
+          const stTag=allConfirmed?'<span style="color:#059669;font-weight:700;font-size:10px">✓ Đã nhận</span>':'<span style="color:#db2777;font-weight:700;font-size:10px">⏳ Chờ NV xác nhận</span>';
+          const confirmBtn=!allConfirmed&&isMgr()?'<button class="btn btn-sm" style="background:rgba(236,72,153,.06);color:#db2777;border:1px solid rgba(236,72,153,.15);font-size:9px;padding:3px 8px" onclick="event.stopPropagation();confirmAdvBatchReceived('+b.id+',\''+m+'\')">✓ Xác nhận</button>':'';
+          abH+='<tr style="cursor:pointer;border-bottom:1px solid var(--g200)" onclick="const d=document.getElementById(\'abDet_'+b.id+'_'+m+'\');d.style.display=d.style.display===\'none\'?\'table-row\':\'none\'">'+
+            '<td style="color:#db2777;font-weight:800">▸</td>'+
+            '<td style="font-weight:700;color:#db2777">#'+b.id+'</td>'+
+            '<td>'+fmtDate(b.date)+'</td>'+
+            '<td>'+(b.disbursedBy||'--')+'</td>'+
+            '<td>'+staffDisplayName(b.recipient)+'</td>'+
+            '<td style="text-align:center;font-weight:700">'+bItems.length+'</td>'+
+            '<td class="amt" style="font-weight:800;color:#db2777">'+fmtV(b.total)+'</td>'+
+            '<td style="text-align:center">'+stTag+'</td>'+
+            '<td style="text-align:center">'+confirmBtn+'</td>'+
+            '</tr>';
+          abH+='<tr id="abDet_'+b.id+'_'+m+'" style="display:none"><td colspan="9" style="padding:8px 12px;background:rgba(236,72,153,.04)">'+
+            '<div style="font-size:10px;margin-bottom:4px;color:#db2777">'+(b.note?'📝 '+b.note:'')+(b.confirmedDate?' | ✓ Xác nhận: '+fmtDate(b.confirmedDate)+' bởi '+(b.confirmedBy||''):'')+' </div>'+
+            '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:4px">'+
+            bItems.map(it=>{
+              const itSt=it.advPaid?'✓':'⏳';
+              return '<div style="background:rgba(236,72,153,.04);border:1px solid rgba(236,72,153,.12);border-radius:4px;padding:4px 6px;font-size:9px;display:flex;justify-content:space-between">'+
+                '<span>'+(it.code||'')+' — '+(it.note||'').substring(0,25)+' '+itSt+'</span>'+
+                '<b style="color:#db2777">'+fmtV(it.amount)+'</b></div>';
+            }).join('')+
+            '</div></td></tr>';
+        });
+        abH+='</tbody></table>';
+        mgrABDiv.innerHTML=abH;
+      }
+    }
     // Restore active tab
     _restoreQTab(m);
   } else {
@@ -2457,6 +2621,44 @@ function renderM(m){
     }
   }
 
+  // Employee: Advance reimbursement batch summary
+  const empABDiv=document.getElementById('empAdvBatchSummary_'+m);
+  const empABEmpty=document.getElementById('empAdvBatchEmpty_'+m);
+  const empABCnt=document.getElementById('empAdvBatchCnt_'+m);
+  if(empABDiv){
+    // Show batches where current user is the recipient (by staffCode)
+    const myCode=currentUser?currentUser.staffCode:'';
+    const myAdvBatches=cashBatches.filter(b=>b.type==='adv_reimburse'&&b.recipient===myCode&&b.itemIds.some(id=>{const it=items.find(x=>x.id===id);return it&&it.date.startsWith(year+'-'+m);}));
+    const pendingEmpAB=myAdvBatches.filter(b=>b.status!=='confirmed');
+    if(empABCnt)empABCnt.textContent=pendingEmpAB.length||'0';
+    if(!myAdvBatches.length){empABDiv.innerHTML='';if(empABEmpty)empABEmpty.style.display='';}
+    else{
+      if(empABEmpty)empABEmpty.style.display='none';
+      empABDiv.innerHTML=myAdvBatches.map(b=>{
+        const bItems=b.itemIds.map(id=>items.find(x=>x.id===id)).filter(Boolean);
+        const allConfirmed=b.status==='confirmed'||bItems.every(it=>it.advPaid);
+        const stLabel=allConfirmed?'<span style="color:#059669;font-weight:700">✓ Đã xác nhận</span>':'<span style="color:#db2777;font-weight:700">⏳ Chờ xác nhận</span>';
+        const confirmBtn=!allConfirmed?'<button class="btn" style="background:#db2777;color:#fff;margin-top:8px;width:100%" onclick="confirmAdvBatchReceived('+b.id+',\''+m+'\')">✓ Xác nhận đã nhận tiền</button>':'';
+        return '<div style="background:rgba(236,72,153,.04);border:1px solid rgba(236,72,153,.15);border-radius:10px;padding:12px;margin-bottom:10px">'+
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'+
+          '<b style="color:#db2777;font-size:13px">💸 Đợt hoàn trả #'+b.id+'</b>'+stLabel+'</div>'+
+          '<div style="font-size:11px;color:#db2777;margin-bottom:6px">'+
+          '<div>📅 Ngày tạo: <b>'+fmtDate(b.date)+'</b> | Người tạo: <b>'+(b.disbursedBy||'--')+'</b></div>'+
+          (b.note?'<div>📝 Ghi chú: '+b.note+'</div>':'')+
+          (b.confirmedDate?'<div>✓ Xác nhận: '+fmtDate(b.confirmedDate)+' bởi '+(b.confirmedBy||'')+'</div>':'')+
+          '</div>'+
+          '<div style="background:#fff;border:1px solid rgba(236,72,153,.15);border-radius:6px;padding:6px 8px;font-size:10px;margin-bottom:6px">'+
+          bItems.map(it=>'<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid #f1f5f9">'+
+            '<span>'+(it.code||'')+' — '+(it.note||'').substring(0,30)+' '+(it.advPaid?'✓':'⏳')+'</span>'+
+            '<span style="font-weight:600;color:#db2777">'+fmtV(it.amount)+'</span></div>').join('')+
+          '</div>'+
+          '<div style="text-align:right;font-size:14px;font-weight:800;color:#db2777">Tổng: '+fmtV(b.total)+'</div>'+
+          confirmBtn+
+          '</div>';
+      }).join('');
+    }
+  }
+
   // Batch header - inline banner in table header
   updateBatchHdr(m);
 
@@ -2464,6 +2666,7 @@ function renderM(m){
   const fltType=document.getElementById('fltType_'+m)?.value||'';
   const fltSt=document.getElementById('fltSt_'+m)?.value||'';
   const fltPay=document.getElementById('fltPay_'+m)?.value||'';
+  const fltMethod=document.getElementById('fltMethod_'+m)?.value||'';
   const fltPayer=document.getElementById('fltPayer_'+m)?.value||'';
   const fltSub=document.getElementById('fltSub_'+m)?.value||'';
   const fltQ=(document.getElementById('fltQ_'+m)?.value||'').toLowerCase();
@@ -2483,6 +2686,7 @@ function renderM(m){
     if(fltType&&e.type!==fltType)return false;
     if(fltSt&&e.status!==fltSt)return false;
     if(fltPay&&e.payStatus!==fltPay)return false;
+    if(fltMethod&&e.method!==fltMethod)return false;
     if(fltPayer&&e.payer!==fltPayer)return false;
     if(fltStaff&&e.staffCode!==fltStaff)return false;
     if(fltDateFrom&&e.date<fltDateFrom)return false;
@@ -2512,9 +2716,9 @@ function renderM(m){
       const noteFull=e.note||'';
       const cnFull=e.noteCn||'';
       const remarkStr=e.remark?'<br><span style="font-size:9px;color:var(--pp);font-style:italic">📝 '+e.remark+'</span>':'';
-      const payerShort=e.payer==='NV tạm ứng'?'TƯ'+(e.advPaid?' ✓':''):e.payer==='Lập Nguyên'?'LN':e.payer==='He Huan Shan'?'HHS':e.payer==='Kế Toán'?'KT':e.payer||'';
-      const advStaffObj2=e.payer==='NV tạm ứng'&&e.advStaff?STAFF.find(s=>s.code===e.advStaff):null;
-      const advTag=e.payer==='NV tạm ứng'?'<div style="margin-top:2px;background:'+(e.advPaid?'rgba(5,150,105,.06)':'rgba(217,119,6,.06)')+';color:'+(e.advPaid?'#059669':'#b45309')+';padding:3px 5px;border-radius:4px;font-size:8px;font-weight:600;border:1px solid '+(e.advPaid?'rgba(5,150,105,.15)':'rgba(217,119,6,.15)')+';line-height:1.4">'+(advStaffObj2?advStaffObj2.name:e.advStaff)+'<br>'+fmtV(e.advAmt||0)+'<br>'+(e.advPaid?'<span style="color:#059669">✓ Đã hoàn trả</span>':'<span style="color:#dc2626">✗ Chưa hoàn trả</span>')+'</div>':'';
+      const payerShort=e.payer==='NV tạm ứng'?'TƯ'+(e.advPaid?' ✓':''):e.payer==='KT Bộ phận'?'KTBP'+(e.advPaid?' ✓':''):e.payer==='Lập Nguyên'?'LN':e.payer==='He Huan Shan'?'HHS':e.payer==='Kế Toán'?'KT':e.payer||'';
+      const advStaffObj2=isAdvPayer(e.payer)&&e.advStaff?STAFF.find(s=>s.code===e.advStaff):null;
+      const advTag=isAdvPayer(e.payer)?'<div style="margin-top:2px;background:'+(e.advPaid?'rgba(5,150,105,.06)':'rgba(217,119,6,.06)')+';color:'+(e.advPaid?'#059669':'#b45309')+';padding:3px 5px;border-radius:4px;font-size:8px;font-weight:600;border:1px solid '+(e.advPaid?'rgba(5,150,105,.15)':'rgba(217,119,6,.15)')+';line-height:1.4">'+(advStaffObj2?advStaffObj2.name:e.advStaff)+'<br>'+fmtV(e.advAmt||0)+'<br>'+(e.advPaid?'<span style="color:#059669">✓ Đã hoàn trả</span>':'<span style="color:#dc2626">✗ Chưa hoàn trả</span>')+'</div>':'';
       const submittedStatus=e.submitted?`✓ ${e.submittedDate}`:'—';
       const voucherDateStr=e.voucherDate?fmtDate(e.voucherDate):'';
       const paidDateStr=e.paidDate?fmtDate(e.paidDate):'';
@@ -2593,7 +2797,7 @@ function renderTracker(m,mI){
     if(e.status==='cash_disbursed')g.cash_disbursed.push(e);
     if(e.status==='rejected')g.rejected.push(e);
     if(e.status==='recall_pending')g.recall_pending.push(e);
-    if(e.payer==='NV tạm ứng'&&!e.advPaid)g.advUnpaid.push(e);
+    if(isAdvPayer(e.payer)&&!e.advPaid)g.advUnpaid.push(e);
   });
   const labels={
     unpaid:{vn:'Chưa thanh toán',cn:'未付款',ic:'⚠',bg:'rgba(220,38,38,.05)',cl:'#dc2626',bd:'rgba(220,38,38,.15)'},
@@ -2696,6 +2900,7 @@ function exportMyCSV(m){
   const fltType=document.getElementById('fltType_'+m)?.value||'';
   const fltSt=document.getElementById('fltSt_'+m)?.value||'';
   const fltPay=document.getElementById('fltPay_'+m)?.value||'';
+  const fltMethod=document.getElementById('fltMethod_'+m)?.value||'';
   const fltPayer=document.getElementById('fltPayer_'+m)?.value||'';
   const fltSub=document.getElementById('fltSub_'+m)?.value||'';
   const fltQ=(document.getElementById('fltQ_'+m)?.value||'').toLowerCase();
@@ -2703,6 +2908,7 @@ function exportMyCSV(m){
     if(fltType&&e.type!==fltType)return false;
     if(fltSt&&e.status!==fltSt)return false;
     if(fltPay&&e.payStatus!==fltPay)return false;
+    if(fltMethod&&e.method!==fltMethod)return false;
     if(fltPayer&&e.payer!==fltPayer)return false;
     if(fltSub==='yes'&&!e.submitted)return false;
     if(fltSub==='no'&&e.submitted)return false;
@@ -2726,6 +2932,7 @@ function exportMonthCSV(m){
   const fltType=document.getElementById('fltType_'+m)?.value||'';
   const fltSt=document.getElementById('fltSt_'+m)?.value||'';
   const fltPay=document.getElementById('fltPay_'+m)?.value||'';
+  const fltMethod=document.getElementById('fltMethod_'+m)?.value||'';
   const fltPayer=document.getElementById('fltPayer_'+m)?.value||'';
   const fltSub=document.getElementById('fltSub_'+m)?.value||'';
   const fltQ=(document.getElementById('fltQ_'+m)?.value||'').toLowerCase();
@@ -2733,6 +2940,7 @@ function exportMonthCSV(m){
     if(fltType&&e.type!==fltType)return false;
     if(fltSt&&e.status!==fltSt)return false;
     if(fltPay&&e.payStatus!==fltPay)return false;
+    if(fltMethod&&e.method!==fltMethod)return false;
     if(fltPayer&&e.payer!==fltPayer)return false;
     if(fltSub==='yes'&&!e.submitted)return false;
     if(fltSub==='no'&&e.submitted)return false;
@@ -2927,7 +3135,7 @@ window.addEventListener('beforeunload',function(ev){
   }catch(e){console.error('[SYNC] unload sync error:',e);}
 });
 
-// visibilitychange: sync ngay khi user chuyển tab (tab bị ẩn)
+// visibilitychange: sync ngay khi user chuyển tab (tab bị ẩn) + pull khi visible
 document.addEventListener('visibilitychange',function(){
   if(document.visibilityState==='hidden'&&GSHEET_API&&hasUnsynced()){
     console.log('[SYNC] Tab hidden — triggering immediate sync');
@@ -2937,7 +3145,25 @@ document.addEventListener('visibilitychange',function(){
       syncToSheets(data);
     }
   }
+  // v10: Khi tab visible lại → pull data mới từ Sheets (để manager thấy đơn NV vừa nộp)
+  if(document.visibilityState==='visible'&&GSHEET_API&&!isSyncing){
+    console.log('[SYNC] Tab visible — pulling fresh data...');
+    loadFromSheets().catch(e=>console.warn('[SYNC] Visibility pull error:',e));
+  }
 });
+
+// v10: Auto-refresh: mỗi 30s pull data mới từ Sheets (để đồng bộ đa máy realtime hơn)
+let _autoRefreshTimer=null;
+function startAutoRefresh(){
+  if(_autoRefreshTimer)clearInterval(_autoRefreshTimer);
+  _autoRefreshTimer=setInterval(function(){
+    if(GSHEET_API&&!isSyncing&&document.visibilityState==='visible'){
+      console.log('[SYNC] Auto-refresh: pulling from Sheets...');
+      loadFromSheets().catch(e=>console.warn('[SYNC] Auto-refresh error:',e));
+    }
+  },30000); // 30s
+}
+startAutoRefresh();
 
 // Khi page load: kiểm tra có unsynced data từ lần trước không
 window.addEventListener('load',function(){
