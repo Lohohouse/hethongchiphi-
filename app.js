@@ -1,3 +1,51 @@
+// ============ v11: AUTO-UPDATE — BẮT BUỘC DÙNG BẢN MỚI NHẤT ============
+const APP_VERSION=11;
+const VERSION_CHECK_URL=location.origin+location.pathname.replace(/[^\/]*$/,'')+'version.json';
+const VERSION_CHECK_INTERVAL=5*60*1000; // 5 phút
+
+// Kiểm tra version mới từ GitHub Pages
+async function checkForUpdate(showUI){
+  try{
+    const res=await fetch(VERSION_CHECK_URL+'?t='+Date.now(),{cache:'no-store',signal:AbortSignal.timeout(10000)});
+    if(!res.ok)return;
+    const ver=await res.json();
+    if(ver.version&&ver.version>APP_VERSION){
+      console.log('[UPDATE] Phiên bản mới:',ver.version,'(hiện tại:',APP_VERSION+')');
+      // Hiện thông báo bắt buộc — KHÔNG cho bỏ qua
+      const overlay=document.createElement('div');
+      overlay.id='forceUpdateOverlay';
+      overlay.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);z-index:99999;display:flex;align-items:center;justify-content:center;';
+      overlay.innerHTML='<div style="background:#fff;border-radius:16px;padding:32px 28px;max-width:380px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)">'
+        +'<div style="font-size:48px;margin-bottom:12px">🔄</div>'
+        +'<h2 style="margin:0 0 8px;font-size:18px;color:#1e293b">Có bản cập nhật mới</h2>'
+        +'<p style="margin:0 0 16px;font-size:13px;color:#64748b">Phiên bản '+ver.version+' đã sẵn sàng.<br>Hệ thống sẽ tự động cập nhật.</p>'
+        +'<div style="font-size:12px;color:#94a3b8">Đang tải bản mới...</div>'
+        +'</div>';
+      document.body.appendChild(overlay);
+      // Force reload sau 1.5s (đủ để user đọc thông báo)
+      setTimeout(function(){location.reload(true);},1500);
+      return true; // có update
+    }
+    // Kiểm tra minVersion — chặn phiên bản quá cũ
+    if(ver.minVersion&&APP_VERSION<ver.minVersion){
+      console.error('[UPDATE] Phiên bản',APP_VERSION,'không còn được hỗ trợ! Min:',ver.minVersion);
+      document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#f8fafc">'
+        +'<div style="text-align:center;padding:32px"><h2>⚠️ Phiên bản hết hạn</h2>'
+        +'<p>Vui lòng tải lại trang (Ctrl+Shift+R)</p>'
+        +'<button onclick="location.reload(true)" style="padding:12px 24px;background:#6366f1;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer">Tải lại ngay</button>'
+        +'</div></div>';
+      return true;
+    }
+  }catch(e){
+    console.warn('[UPDATE] Không kiểm tra được version:',e.message);
+  }
+  return false;
+}
+
+// Kiểm tra ngay khi load + lặp lại mỗi 5 phút
+checkForUpdate(true);
+setInterval(function(){checkForUpdate(false);},VERSION_CHECK_INTERVAL);
+
 // ============ USER & AUTH SYSTEM ============
 const ROLE_LABELS={staff:{vn:'Nhân viên',cn:'員工'},accountant:{vn:'KT Bộ phận',cn:'部門會計'},manager:{vn:'Quản lý',cn:'管理'},boss:{vn:'Boss',cn:'老闆'},chief_accountant:{vn:'KT Trưởng',cn:'總會計'},cashier:{vn:'Thủ quỹ',cn:'出納'}};
 const DEFAULT_USERS=[
@@ -2140,8 +2188,7 @@ function openEdit(id){
   if(e.locked&&!isMgr()&&!isBoss()){toast('Đơn đã khóa 🔐 — chỉ QL/Boss mới chỉnh sửa được');return;}
   if(isStaff()&&e.staffCode!==currentUser.staffCode){toast('Không có quyền');return;}
   if(!isMgr()&&e.status!=='draft'){toast('Chỉ sửa được khoản ở trạng thái Nháp. Dùng "Thu hồi" nếu cần chỉnh sửa');return;}
-  // Manager/Boss: chỉ cho sửa phương thức + 1 số field, không cho sửa nếu đã paid/returned
-  if(isMgr()&&['paid','returned','cash_confirmed'].includes(e.status)){toast('Đơn đã hoàn tất — không thể chỉnh sửa');return;}
+  // Manager/Boss: cho phép chỉnh sửa mọi trạng thái
   document.getElementById('eId').value=id;
   document.getElementById('eDate').value=e.date;
   document.getElementById('eType').innerHTML=catOpts();document.getElementById('eType').value=e.type;
@@ -3170,6 +3217,7 @@ const GSHEET_API='https://script.google.com/macros/s/AKfycby1QVV0lxT8oFjIg994tGa
 if(typeof AbortSignal!=='undefined'&&!AbortSignal.timeout){AbortSignal.timeout=function(ms){const c=new AbortController();setTimeout(()=>c.abort(new DOMException('TimeoutError','TimeoutError')),ms);return c.signal;};}
 let syncTimer=null;
 let isSyncing=false;
+let _isLoading=false; // v11: mutex cho loadFromSheets — chống race condition
 let _lastSyncAction='auto-save';
 let _lastSyncDetail='';
 let _syncRetryCount=0;
@@ -3209,53 +3257,41 @@ function syncImmediate(actionType,detail){
   }
 }
 
-// beforeunload: cố gắng sync khi user đóng tab/trình duyệt
+// v11: beforeunload — CHỈ lưu localStorage, KHÔNG sendBeacon/POST lên Sheets
+// sendBeacon gửi raw data KHÔNG qua merge → ghi đè data từ máy khác → MẤT DỮ LIỆU
 window.addEventListener('beforeunload',function(ev){
-  if(!GSHEET_API||!hasUnsynced())return;
-  // Dùng sendBeacon (reliable khi đóng tab) hoặc fetch keepalive
+  // Lưu localStorage để recovery sync khi mở lại trang
   try{
-    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
-    const syncUser=(typeof currentUser!=='undefined'&&currentUser)?currentUser.displayName||currentUser.username||currentRole:currentRole||'unknown';
-    data._syncUser=syncUser;
-    data._syncAction='beforeunload-emergency';
-    data._syncDetail='User đóng trang — emergency sync';
-    const bodyStr=JSON.stringify(data);
-    // sendBeacon là API đáng tin nhất khi đóng tab
-    if(navigator.sendBeacon){
-      const blob=new Blob([bodyStr],{type:'text/plain'});
-      const sent=navigator.sendBeacon(GSHEET_API+'?action=save',blob);
-      console.log('[SYNC] sendBeacon on unload:',sent?'queued':'failed');
-    }else{
-      // Fallback: fetch with keepalive
-      fetch(GSHEET_API+'?action=save',{method:'POST',body:bodyStr,headers:{'Content-Type':'text/plain'},keepalive:true});
-      console.log('[SYNC] fetch keepalive on unload');
-    }
-  }catch(e){console.error('[SYNC] unload sync error:',e);}
+    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()};
+    const json=JSON.stringify(data);
+    try{localStorage.setItem(LS_KEY,json);}catch(se){}
+    console.log('[SYNC] beforeunload: saved to localStorage only (NO sendBeacon)');
+  }catch(e){console.error('[SYNC] beforeunload localStorage error:',e);}
 });
 
-// visibilitychange: sync ngay khi user chuyển tab (tab bị ẩn) + pull khi visible
+// v11: visibilitychange — sync khi ẩn + pull khi visible (với mutex check đầy đủ)
 document.addEventListener('visibilitychange',function(){
   if(document.visibilityState==='hidden'&&GSHEET_API&&hasUnsynced()){
     console.log('[SYNC] Tab hidden — triggering immediate sync');
     clearTimeout(syncTimer);
-    if(!isSyncing){
+    if(!isSyncing&&!_isLoading){
       const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
       syncToSheets(data);
     }
   }
-  // v10: Khi tab visible lại → pull data mới từ Sheets (để manager thấy đơn NV vừa nộp)
-  if(document.visibilityState==='visible'&&GSHEET_API&&!isSyncing){
+  // v11: Khi tab visible lại → pull data mới (check cả _isLoading để tránh concurrent load)
+  if(document.visibilityState==='visible'&&GSHEET_API&&!isSyncing&&!_isLoading){
     console.log('[SYNC] Tab visible — pulling fresh data...');
     loadFromSheets().catch(e=>console.warn('[SYNC] Visibility pull error:',e));
   }
 });
 
-// v10: Auto-refresh: mỗi 30s pull data mới từ Sheets (để đồng bộ đa máy realtime hơn)
+// v11: Auto-refresh: mỗi 30s pull data mới (check cả _isLoading mutex)
 let _autoRefreshTimer=null;
 function startAutoRefresh(){
   if(_autoRefreshTimer)clearInterval(_autoRefreshTimer);
   _autoRefreshTimer=setInterval(function(){
-    if(GSHEET_API&&!isSyncing&&document.visibilityState==='visible'){
+    if(GSHEET_API&&!isSyncing&&!_isLoading&&document.visibilityState==='visible'){
       console.log('[SYNC] Auto-refresh: pulling from Sheets...');
       loadFromSheets().catch(e=>console.warn('[SYNC] Auto-refresh error:',e));
     }
@@ -3263,24 +3299,33 @@ function startAutoRefresh(){
 }
 startAutoRefresh();
 
-// Khi page load: kiểm tra có unsynced data từ lần trước không
+// v11: Recovery sync — ĐỢI loadFromSheets HOÀN TẤT trước khi sync (tránh ghi đè stale data)
 window.addEventListener('load',function(){
   if(GSHEET_API&&hasUnsynced()){
-    console.log('[SYNC] Found unsynced data from previous session — auto-syncing...');
-    setTimeout(function(){
-      if(!isSyncing){
-        _lastSyncAction='recovery-sync';
-        _lastSyncDetail='Auto recovery từ session trước';
-        const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
-        syncToSheets(data);
+    console.log('[SYNC] Found unsynced data from previous session — waiting for initial load...');
+    // Đợi loadFromSheets hoàn tất (poll mỗi 500ms, tối đa 15s)
+    let waited=0;
+    const waitForLoad=setInterval(function(){
+      waited+=500;
+      if(_sheetsLoaded||waited>=15000){
+        clearInterval(waitForLoad);
+        if(!isSyncing&&!_isLoading){
+          console.log('[SYNC] Recovery sync starting (waited '+waited+'ms, sheetsLoaded='+_sheetsLoaded+')');
+          _lastSyncAction='recovery-sync';
+          _lastSyncDetail='Auto recovery từ session trước';
+          const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
+          syncToSheets(data);
+        }else{
+          console.log('[SYNC] Recovery sync skipped — sync/load still running');
+        }
       }
-    },3000); // đợi 3s sau khi loadData xong
+    },500);
   }
 });
 
-// Periodic check: mỗi 30s kiểm tra có unsynced data không → auto retry
+// v11: Periodic check — check _isLoading mutex
 setInterval(function(){
-  if(GSHEET_API&&hasUnsynced()&&!isSyncing){
+  if(GSHEET_API&&hasUnsynced()&&!isSyncing&&!_isLoading){
     console.log('[SYNC] Periodic check: found unsynced data — retrying...');
     _lastSyncAction='periodic-retry';
     _syncRetryCount=0;
@@ -3308,8 +3353,9 @@ function updateSyncUI(status,msg){
 }
 
 function forceSync(){
+  if(_isLoading){console.warn('[SYNC] forceSync skipped — loadFromSheets đang chạy');return;}
   _syncRetryCount=0;
-  isSyncing=false;
+  isSyncing=false; // Reset mutex để cho phép sync lại
   const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
   syncToSheets(data);
 }
@@ -3319,8 +3365,10 @@ function saveData(actionType,detail){
     if(actionType)_lastSyncAction=actionType;
     if(detail)_lastSyncDetail=detail;
     if(!actionType&&!_lastSyncAction){_lastSyncAction='auto-save';}
-    items.forEach(e=>{delete e._selCtx;e.selected=false;});
-    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
+    const _now=new Date().toISOString();
+    // v11: updatedAt — dùng làm tiebreaker trong mergeItems khi cùng status
+    items.forEach(e=>{delete e._selCtx;e.selected=false;e.updatedAt=_now;});
+    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:_now};
     const json=JSON.stringify(data);
     try{localStorage.setItem(LS_KEY,json);}catch(storageErr){
       console.error('localStorage full:',storageErr);
@@ -3419,31 +3467,28 @@ function cleanTestData(){
   localStorage.setItem('loho_test_cleaned_v3','1');
 }
 
-// Merge 2 mảng items theo id: local wins nếu cùng id (vì user vừa sửa), thêm items từ remote chưa có trong local
+// v11: Merge items — remote wins nếu status cao hơn HOẶC updatedAt mới hơn
 function mergeItems(localItems, remoteItems){
   const localMap=new Map(localItems.map(e=>[e.id,e]));
-  // Thêm items từ remote mà local chưa có
+  const stOrder={draft:0,pending:1,rejected:1.5,recall_pending:1.5,approved:2,'Chờ nộp CT':3,voucher:3,'Đã nộp CT':4,boss_approved:5,cashier_review:5.5,cash_disbursed:6,paid:7,returned:7,cash_confirmed:7};
   remoteItems.forEach(re=>{
-    if(_deletedIds.has(re.id))return; // Đã bị xóa — không thêm lại
+    if(_deletedIds.has(re.id))return;
     if(!localMap.has(re.id)){
       localMap.set(re.id,re);
     } else {
       const le=localMap.get(re.id);
-      // v6: Status order — rejected/recall riêng biệt
-      const stOrder={draft:0,pending:1,rejected:1.5,recall_pending:1.5,approved:2,'Chờ nộp CT':3,voucher:3,'Đã nộp CT':4,boss_approved:5,cashier_review:5.5,cash_disbursed:6,paid:7,returned:7,cash_confirmed:7};
       const lOrd=stOrder[le.status]||0;
       const rOrd=stOrder[re.status]||0;
       if(rOrd>lOrd){
         localMap.set(re.id,re);
       }else if(rOrd===lOrd){
-        // v6 tiebreaker: cùng status → bản có timestamp mới hơn thắng
-        const lTime=le.paidDate||le.approvedDate||le.submittedDate||le.savedAt||'';
-        const rTime=re.paidDate||re.approvedDate||re.submittedDate||re.savedAt||'';
-        if(rTime>lTime)localMap.set(re.id,re);
+        // v11: tiebreaker cải tiến — dùng updatedAt trước, rồi mới fallback timestamps
+        const lUp=le.updatedAt||le.paidDate||le.approvedDate||le.submittedDate||le.savedAt||'';
+        const rUp=re.updatedAt||re.paidDate||re.approvedDate||re.submittedDate||re.savedAt||'';
+        if(rUp>lUp)localMap.set(re.id,re);
       }
     }
   });
-  // Lọc bỏ items đã xóa
   return Array.from(localMap.values()).filter(e=>!_deletedIds.has(e.id));
 }
 
@@ -3465,9 +3510,12 @@ function mergeAdvances(localAdv, remoteAdv){
   return Array.from(localMap.values()).filter(a=>!_deletedAdvIds.has(a.id));
 }
 
-// Sync lên Google Sheets (v4: retry + queue + await loadFromSheets)
+// v11: Sync lên Google Sheets — check cả _isLoading mutex
 async function syncToSheets(data){
-  if(isSyncing||!GSHEET_API)return;
+  if(isSyncing||_isLoading||!GSHEET_API){
+    if(_isLoading){console.log('[SYNC] Deferred: loadFromSheets đang chạy');_pendingSyncData=data;}
+    return;
+  }
   isSyncing=true;
   updateSyncUI('sync','⏳ Đang đồng bộ...');
   console.log('[SYNC] Start — items:',data.items.length,'user:',(currentUser?currentUser.username:'?'));
@@ -3518,9 +3566,48 @@ async function syncToSheets(data){
     // Bước 2: Luôn dùng items HIỆN TẠI (không dùng snapshot cũ từ debounce)
     const currentData={items:[...items],budgets:{...budgets},nextId,advances:[...advances],advNextId,cashBatches:[...(cashBatches||[])],cashBatchNextId:cashBatchNextId||1};
 
-    // Bước 3: Merge local + remote (v6: + cashBatches + deletedIds)
+    // v11: ENHANCED SAFEGUARD — check count + max ID + max code
     const mergedItems=mergeItems(currentData.items, remoteItems).filter(e=>!_deletedIds.has(e.id));
     const mergedAdvances=mergeAdvances(currentData.advances, remoteAdvances);
+    // Helper: tìm max item code (LN260521 → so sánh string)
+    const getMaxCode=function(arr){return arr.reduce(function(mx,e){return(e.code&&e.code>mx)?e.code:mx;},'');};
+    const getMaxId=function(arr){return arr.reduce(function(mx,e){return Math.max(mx,e.id||0);},0);};
+    const mergedMaxCode=getMaxCode(mergedItems);
+    const remoteMaxCode=getMaxCode(remoteItems);
+    const mergedMaxId=getMaxId(mergedItems);
+    const remoteMaxId=getMaxId(remoteItems);
+    // SAFEGUARD 1: count check
+    if(mergedItems.length<remoteItems.length){
+      console.error('[SYNC] SAFEGUARD-COUNT: merged('+mergedItems.length+') < remote('+remoteItems.length+') — ABORTED');
+      updateSyncUI('err','⚠️ Dữ liệu local thiếu — không ghi đè server');
+      isSyncing=false;
+      items=mergedItems;advances=mergedAdvances;
+      const sj=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
+      try{localStorage.setItem(LS_KEY,sj);}catch(e){}
+      rerender();renderAdvances();
+      return;
+    }
+    // SAFEGUARD 2: max code/ID check — merged phải >= remote
+    if(mergedMaxId<remoteMaxId||mergedMaxCode<remoteMaxCode){
+      console.error('[SYNC] SAFEGUARD-CONTENT: merged maxId='+mergedMaxId+' maxCode='+mergedMaxCode+' < remote maxId='+remoteMaxId+' maxCode='+remoteMaxCode+' — ABORTED');
+      updateSyncUI('err','⚠️ Dữ liệu local cũ hơn server — không ghi đè');
+      isSyncing=false;
+      items=mergedItems;advances=mergedAdvances;
+      const sj=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
+      try{localStorage.setItem(LS_KEY,sj);}catch(e){}
+      rerender();renderAdvances();
+      return;
+    }
+    if(mergedAdvances.length<remoteAdvances.length){
+      console.error('[SYNC] SAFEGUARD: merged advances('+mergedAdvances.length+') < remote('+remoteAdvances.length+') — ABORTED');
+      updateSyncUI('err','⚠️ Dữ liệu TƯ local thiếu — không ghi đè server');
+      isSyncing=false;
+      items=mergedItems;advances=mergedAdvances;
+      const sj=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
+      try{localStorage.setItem(LS_KEY,sj);}catch(e){}
+      rerender();renderAdvances();
+      return;
+    }
     const mergedNextId=Math.max(currentData.nextId||1, remoteNextId, mergedItems.reduce((mx,e)=>Math.max(mx,e.id),0)+1);
     const mergedAdvNextId=Math.max(currentData.advNextId||1, remoteAdvNextId, mergedAdvances.reduce((mx,a)=>Math.max(mx,a.id||0),0)+1);
     const mergedBudgets=Object.assign({},remoteBudgets,currentData.budgets||{});
@@ -3544,6 +3631,12 @@ async function syncToSheets(data){
     // Bước 5: POST merged data lên Sheets
     const merged={items:mergedItems,budgets:mergedBudgets,nextId:mergedNextId,advances:mergedAdvances,advNextId:mergedAdvNextId,
       cashBatches:currentData.cashBatches,cashBatchNextId:currentData.cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
+    // v11: Thêm metadata để server/debug biết version + content fingerprint
+    merged._version=11;
+    merged._maxItemId=mergedMaxId;
+    merged._maxItemCode=mergedMaxCode;
+    merged._itemCount=mergedItems.length;
+    merged._advCount=mergedAdvances.length;
     const syncUser=(typeof currentUser!=='undefined'&&currentUser)?currentUser.displayName||currentUser.username||currentRole:currentRole||'unknown';
     merged._syncUser=syncUser;
     merged._syncAction=_lastSyncAction||'auto-save';
@@ -3599,9 +3692,11 @@ async function syncToSheets(data){
   }
 }
 
-// Load từ Google Sheets (khi mở trang) — v4: await + robust error handling
+// v11: Load từ Google Sheets — với _isLoading mutex chống concurrent load
 async function loadFromSheets(){
   if(!GSHEET_API)return;
+  if(_isLoading){console.warn('[LOAD] Skipped — already loading');return;}
+  _isLoading=true;
   try{
     console.log('[LOAD] Fetching from Sheets...');
     const res=await fetch(GSHEET_API+'?action=load',{signal:AbortSignal.timeout(30000)});
@@ -3612,6 +3707,11 @@ async function loadFromSheets(){
       const remoteBudgets=r.budgets||{};
       const remoteNextId=r.nextId||1;
       const remoteAdvNextId=r.advNextId||1;
+
+      // v11: Phát hiện data bị ghi đè bởi phiên bản cũ (sendBeacon không có _version)
+      if(!r.savedAt||!r._version){
+        console.warn('[LOAD] ⚠️ Remote data thiếu savedAt/_version — có thể bị ghi đè bởi phiên bản cũ! Remote items:',remoteItems.length);
+      }
 
       const prevCount=items.length;
       items=mergeItems(items, remoteItems);
@@ -3711,6 +3811,8 @@ async function loadFromSheets(){
     console.warn('[LOAD] Failed (offline):',e.message);
     updateSyncUI('warn','💾 Offline — dùng dữ liệu cục bộ');
     _sheetsLoaded=true; // Cho phép user thao tác dù offline
+  }finally{
+    _isLoading=false; // v11: LUÔN giải phóng mutex
   }
 }
 // Backup: tải file JSON về máy

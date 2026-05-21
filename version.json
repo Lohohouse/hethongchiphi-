@@ -1,0 +1,1 @@
+{"version":11,"minVersion":11,"updatedAt":"2026-05-21T12:00:00Z","note":"v11: Fix sync data loss - remove sendBeacon, add mutex, enhanced safeguard"}
