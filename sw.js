@@ -1,4 +1,4 @@
-// Service Worker v11 — Auto-update mechanism
+// Service Worker v12 — Auto-update mechanism
 // File này chạy ở tầng TRƯỚC index.html, kiểm soát mọi request
 
 const CACHE_VERSION = 'loho-v12';

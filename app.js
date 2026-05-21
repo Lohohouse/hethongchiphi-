@@ -1,4 +1,4 @@
-// ============ v11: AUTO-UPDATE — BẮT BUỘC DÙNG BẢN MỚI NHẤT ============
+// ============ v12: AUTO-UPDATE — BẮT BUỘC DÙNG BẢN MỚI NHẤT ============
 const APP_VERSION=12;
 const VERSION_CHECK_URL=location.origin+location.pathname.replace(/[^\/]*$/,'')+'version.json';
 const VERSION_CHECK_INTERVAL=5*60*1000; // 5 phút
@@ -43,9 +43,25 @@ async function checkForUpdate(){
   return false;
 }
 
-// Kiểm tra sau 3s (đợi DOM ready) + lặp lại mỗi 5 phút
+// Kiểm tra sau 3s (đợi DOM ready) + lặp lại mỗi 2 phút
 setTimeout(function(){checkForUpdate();},3000);
-setInterval(function(){checkForUpdate();},VERSION_CHECK_INTERVAL);
+setInterval(function(){checkForUpdate();},2*60*1000);
+
+// v12: Khi app vừa update version → xóa data cache cũ để force pull 100% từ Sheets
+(function(){
+  const lastVer=parseInt(localStorage.getItem('_app_last_version')||'0');
+  if(lastVer>0&&lastVer<APP_VERSION){
+    console.log('[UPDATE] Version upgrade: v'+lastVer+' → v'+APP_VERSION+' — clearing stale data cache');
+    // Xóa data chính + unsynced flag → loadFromSheets sẽ pull 100% từ Sheets
+    localStorage.removeItem('loho_chiphi_data');
+    localStorage.removeItem('loho_unsynced');
+    localStorage.removeItem('loho_deletedIds');
+    localStorage.removeItem('loho_deletedAdvIds');
+    console.log('[UPDATE] Cleared: loho_chiphi_data, loho_unsynced, loho_deletedIds, loho_deletedAdvIds');
+    // GIỮ NGUYÊN: loho_session, loho_remember, loho_users (login/auth)
+  }
+  localStorage.setItem('_app_last_version',String(APP_VERSION));
+})();
 
 // ============ USER & AUTH SYSTEM ============
 const ROLE_LABELS={staff:{vn:'Nhân viên',cn:'員工'},accountant:{vn:'KT Bộ phận',cn:'部門會計'},manager:{vn:'Quản lý',cn:'管理'},boss:{vn:'Boss',cn:'老闆'},chief_accountant:{vn:'KT Trưởng',cn:'總會計'},cashier:{vn:'Thủ quỹ',cn:'出納'}};
@@ -3652,7 +3668,7 @@ async function syncToSheets(data){
     const merged={items:mergedItems,budgets:mergedBudgets,nextId:mergedNextId,advances:mergedAdvances,advNextId:mergedAdvNextId,
       cashBatches:currentData.cashBatches,cashBatchNextId:currentData.cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
     // v11: Thêm metadata để server/debug biết version + content fingerprint
-    merged._version=11;
+    merged._version=APP_VERSION;
     merged._maxItemId=mergedMaxId;
     merged._maxItemCode=mergedMaxCode;
     merged._itemCount=mergedItems.length;

@@ -4,29 +4,43 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>支付費用明細表 - LOHO HOUSE v2.0</title>
-<!-- v11: Service Worker — auto-update (với anti-loop guard) -->
+<!-- v12: Service Worker — robust auto-update (không cần F12) -->
 <script>
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js').then(function(reg){
+  // updateViaCache:'none' → browser LUÔN fetch sw.js từ network, không dùng HTTP cache
+  navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(function(reg){
+    // Khi có SW mới, bắt nó activate ngay
     reg.addEventListener('updatefound',function(){
       var nw=reg.installing;
+      if(!nw)return;
       nw.addEventListener('statechange',function(){
         if(nw.state==='installed'&&navigator.serviceWorker.controller){
-          // Guard chống reload loop: chỉ reload 1 lần mỗi 30s
-          var lastReload=parseInt(sessionStorage.getItem('sw_reload_at')||'0');
-          if(Date.now()-lastReload>30000){
-            sessionStorage.setItem('sw_reload_at',String(Date.now()));
-            console.log('[SW] New version ready — reloading...');
-            location.reload(true);
-          }else{
-            console.log('[SW] Skipped reload — already reloaded recently');
-          }
+          // Gửi lệnh skipWaiting để SW mới chiếm quyền ngay
+          nw.postMessage('SKIP_WAITING');
+          console.log('[SW] New version installed, sending SKIP_WAITING');
         }
       });
     });
-    setInterval(function(){reg.update();},5*60*1000);
+    // Kiểm tra update ngay khi load + mỗi 2 phút
+    reg.update();
+    setInterval(function(){reg.update();},2*60*1000);
     console.log('[SW] Registered');
   }).catch(function(e){console.warn('[SW] Registration failed:',e);});
+
+  // Khi SW mới chiếm quyền → tự reload trang (với anti-loop)
+  var _swRefreshing=false;
+  navigator.serviceWorker.addEventListener('controllerchange',function(){
+    if(_swRefreshing)return;
+    _swRefreshing=true;
+    var lastReload=parseInt(sessionStorage.getItem('sw_reload_at')||'0');
+    if(Date.now()-lastReload>30000){
+      sessionStorage.setItem('sw_reload_at',String(Date.now()));
+      console.log('[SW] Controller changed — reloading for new version');
+      location.reload(true);
+    }
+  });
+
+  // Fallback: fetch version.json trực tiếp để phát hiện update
   navigator.serviceWorker.addEventListener('message',function(ev){
     if(ev.data&&ev.data.type==='VERSION_INFO'){
       if(typeof APP_VERSION!=='undefined'&&ev.data.version>APP_VERSION){
@@ -38,6 +52,29 @@ if('serviceWorker' in navigator){
       }
     }
   });
+
+  // Force unregister SW cũ nếu phát hiện version cũ sau 10s
+  setTimeout(function(){
+    if(typeof APP_VERSION!=='undefined'){
+      fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(v){
+        if(v.version&&v.version>APP_VERSION){
+          console.log('[SW] Outdated version detected: local='+APP_VERSION+' remote='+v.version+' — force unregister');
+          navigator.serviceWorker.getRegistrations().then(function(regs){
+            regs.forEach(function(r){r.unregister();});
+            caches.keys().then(function(keys){
+              Promise.all(keys.map(function(k){return caches.delete(k);})).then(function(){
+                var lastReload=parseInt(sessionStorage.getItem('sw_reload_at')||'0');
+                if(Date.now()-lastReload>30000){
+                  sessionStorage.setItem('sw_reload_at',String(Date.now()));
+                  location.reload(true);
+                }
+              });
+            });
+          });
+        }
+      }).catch(function(){});
+    }
+  },10000);
 }
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
