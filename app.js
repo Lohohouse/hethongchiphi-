@@ -63,6 +63,7 @@ const STAFF=[
 
 const PAYERS=['Lập Nguyên','He Huan Shan','Kế Toán','NV tạm ứng','KT Bộ phận'];
 function isAdvPayer(p){return p==='NV tạm ứng'||p==='KT Bộ phận';}
+function hasAdvPayerInList(payerStr){return (payerStr||'').split(',').some(function(p){return isAdvPayer(p.trim());});}
 const STATUS={draft:{l:'Nháp',c:'st-draft'},pending:{l:'Chờ duyệt',c:'st-pending'},approved:{l:'Chờ nộp CT',c:'st-approved'},voucher:{l:'Đã nộp CT',c:'st-voucher'},boss_approved:{l:'Boss duyệt ✓',c:'st-boss'},paid:{l:'Hoàn tất',c:'st-paid'},rejected:{l:'Từ chối',c:'st-rejected'},returned:{l:'Đã hoàn trả',c:'st-paid'},recall_pending:{l:'Chờ thu hồi',c:'st-recall'},cashier_review:{l:'Thủ quỹ kiểm tra',c:'st-cashier'},cash_disbursed:{l:'Đã chi TM',c:'st-cash-disbursed'},cash_confirmed:{l:'Đã nhận tiền ✓',c:'st-cash-confirmed'}};
 const COLORS=['#3b82f6','#10b981','#f59e0b','#ec4899','#8b5cf6','#14b8a6','#f97316','#ef4444','#06b6d4','#84cc16','#a855f7','#e11d48','#0ea5e9','#65a30d','#d946ef','#f43f5e','#0891b2','#ca8a04','#7c3aed','#dc2626','#059669','#2563eb','#c026d3','#e879f9','#facc15','#4ade80','#fb923c','#38bdf8','#a3e635','#f472b6','#818cf8','#34d399','#fbbf24'];
 const MS=['01','02','03','04','05','06','07','08','09','10','11','12'];
@@ -374,11 +375,7 @@ function schedTrans(m){clearTimeout(transTimer);transTimer=setTimeout(async()=>{
   for(let y=2024;y<=2030;y++)yr.innerHTML+=`<option value="${y}" ${y===2026?'selected':''}>${y}</option>`;
   yr.addEventListener('change',rebuildTabs);
 
-  // Edit modal payer toggle
-  document.getElementById('ePayer').addEventListener('change',function(){
-    document.getElementById('eAdvRow').style.display=isAdvPayer(this.value)?'':'none';
-    document.getElementById('eAdvAmtRow').style.display=isAdvPayer(this.value)?'':'none';
-  });
+  // Edit modal payer toggle — now handled by onEditPayerCheckChange()
   document.getElementById('eVat').addEventListener('change',function(){document.getElementById('eVatNumRow').style.display=this.value==='Có'?'':'none';});
 })();
 
@@ -415,11 +412,7 @@ function rebuildTabs(){
     const p=document.createElement('div');p.className='pnl';p.id='pnl-m'+m;
     p.innerHTML=buildMonth(m,year);document.getElementById('mainWrap').appendChild(p);
     setTimeout(()=>{
-      const ps=document.getElementById('fPayer_'+m);
-      if(ps)ps.addEventListener('change',function(){
-        document.getElementById('fAdvRow_'+m).style.display=isAdvPayer(this.value)?'':'none';
-        document.getElementById('fAdvAmtRow_'+m).style.display=isAdvPayer(this.value)?'':'none';
-      });
+      // Payer checkboxes — onchange is inline via onPayerCheckChange(m)
       const vs=document.getElementById('fVat_'+m);
       if(vs)vs.addEventListener('change',function(){document.getElementById('fVatNumRow_'+m).style.display=this.value==='Có'?'':'none';});
       // Staff: auto-set and lock "Người lập phiếu" to their staffCode
@@ -454,6 +447,28 @@ function closeM(id){document.getElementById(id).classList.remove('show')}
 function catOpts(){return CATS.map(c=>`<option value="${c.vn}">${c.vn} ${c.cn}</option>`).join('')}
 function staffOpts(){return STAFF.map(s=>`<option value="${s.code}">${s.name} ${s.cn} (${s.code})</option>`).join('')}
 function payerOpts(){return PAYERS.map(p=>`<option value="${p}">${p}</option>`).join('')}
+function payerCheckboxes(m){return PAYERS.map(function(p,i){return '<label style="display:flex;align-items:center;gap:4px;padding:4px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;cursor:pointer"><input type="checkbox" name="fPayer_'+m+'" value="'+p+'" onchange="onPayerCheckChange(\''+m+'\')"> '+p+' <input type="text" id="fPayerAmt_'+m+'_'+i+'" style="width:90px;font-size:11px;display:none;padding:2px 6px;border:1px solid #cbd5e1;border-radius:4px" placeholder="Số tiền" oninput="fmtIn(this)"></label>';}).join('');}
+function onPayerCheckChange(m){
+  var cbs=document.querySelectorAll('input[name="fPayer_'+m+'"]');
+  var hasAdv=false;
+  for(var ci=0;ci<cbs.length;ci++){
+    var amtEl=document.getElementById('fPayerAmt_'+m+'_'+ci);
+    if(amtEl)amtEl.style.display=cbs[ci].checked?'':'none';
+    if(cbs[ci].checked&&isAdvPayer(cbs[ci].value))hasAdv=true;
+  }
+  var advRow=document.getElementById('fAdvRow_'+m);
+  var advAmtRow=document.getElementById('fAdvAmtRow_'+m);
+  if(advRow)advRow.style.display=hasAdv?'':'none';
+  if(advAmtRow)advAmtRow.style.display=hasAdv?'':'none';
+}
+function getCheckedPayers(m){
+  var cbs=document.querySelectorAll('input[name="fPayer_'+m+'"]:checked');
+  return Array.from(cbs).map(function(cb){
+    var idx=PAYERS.indexOf(cb.value);
+    var amtInput=document.getElementById('fPayerAmt_'+m+'_'+idx);
+    return {name:cb.value,amount:amtInput?parseAmt(amtInput.value):0};
+  });
+}
 
 function advLinkOpts(m){
   // Staff: chỉ thấy TƯ của bản thân. KT bộ phận/Manager/Boss/Cashier/Chief: thấy tất cả
@@ -512,7 +527,8 @@ function resetForm(m,fileInput){
   // Staff: fStaff is hidden input (keep value), non-staff: fStaff is select
   const fs=document.getElementById('fStaff_'+m);
   if(fs&&fs.tagName==='SELECT')fs.selectedIndex=0;
-  document.getElementById('fPayer_'+m).selectedIndex=0;
+  var _pcbs=document.querySelectorAll('input[name="fPayer_'+m+'"]');
+  for(var _pi=0;_pi<_pcbs.length;_pi++){_pcbs[_pi].checked=false;var _pai=document.getElementById('fPayerAmt_'+m+'_'+_pi);if(_pai){_pai.value='';_pai.style.display='none';}}
   document.getElementById('fAdvRow_'+m).style.display='none';
   document.getElementById('fAdvAmtRow_'+m).style.display='none';
   const advS=document.getElementById('fAdvStaff_'+m);if(advS)advS.selectedIndex=0;
@@ -543,7 +559,7 @@ function buildFormCard(m,mi){
     '</div>'+
     '<div class="frow">'+
       '<div class="fg"><label>Người lập phiếu<span class="cn"> 申請人</span></label>'+staffField+'</div>'+
-      '<div class="fg"><label>Người chi trả<span class="cn"> 支付者</span></label><select id="fPayer_'+m+'">'+payerOpts()+'</select></div>'+
+      '<div class="fg" style="grid-column:1/-1"><label>Người chi trả<span class="cn"> 支付者</span></label><div id="fPayerGroup_'+m+'" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">'+payerCheckboxes(m)+'</div></div>'+
       '<div class="fg" id="fAdvRow_'+m+'" style="display:none"><label>NV tạm ứng<span class="cn"> 員工</span></label><select id="fAdvStaff_'+m+'"><option value="">-- Chọn --</option>'+staffOpts()+'</select></div>'+
       '<div class="fg" id="fAdvAmtRow_'+m+'" style="display:none"><label>Số tiền tạm ứng</label><input type="text" id="fAdvAmt_'+m+'" placeholder="Số tiền" oninput="fmtIn(this)"/></div>'+
     '</div>'+
@@ -976,10 +992,14 @@ async function addItem(m){
   const payStatus=document.getElementById('fPay_'+m).value;
   const staffCode=document.getElementById('fStaff_'+m).value;
   if(!staffCode){toast('Chọn người lập phiếu');return;}
-  const payer=document.getElementById('fPayer_'+m).value;
-  const advStaff=isAdvPayer(payer)?document.getElementById('fAdvStaff_'+m).value:'';
-  const advAmt=isAdvPayer(payer)?parseAmt(document.getElementById('fAdvAmt_'+m).value):0;
-  if(isAdvPayer(payer)&&!advStaff){toast('Chọn NV tạm ứng');return;}
+  const checkedPayers=getCheckedPayers(m);
+  if(!checkedPayers.length){toast('Chọn ít nhất 1 người chi trả');return;}
+  const payer=checkedPayers.map(function(p){return p.name;}).join(', ');
+  const payerAmounts={};checkedPayers.forEach(function(p){payerAmounts[p.name]=p.amount;});
+  const _hasAdvP=checkedPayers.some(function(p){return isAdvPayer(p.name);});
+  const advStaff=_hasAdvP?document.getElementById('fAdvStaff_'+m).value:'';
+  const advAmt=_hasAdvP?parseAmt(document.getElementById('fAdvAmt_'+m).value):0;
+  if(_hasAdvP&&!advStaff){toast('Chọn NV tạm ứng');return;}
   const method=document.getElementById('fMethod_'+m).value;
   const note=document.getElementById('fNote_'+m).value.trim();
   const noteCn=document.getElementById('fNoteCn_'+m).value.trim();
@@ -1005,7 +1025,7 @@ async function addItem(m){
   // v5: ID = timestamp-based để tránh trùng giữa các trình duyệt
   const newId=Date.now()+Math.floor(Math.random()*1000);
   if(newId>=nextId)nextId=newId+1;
-  items.push({id:newId,date,code:genCode(m),type,typeCn:cat?cat.cn:'',amount,payStatus,staffCode,payer,advStaff,advAmt,advPaid:false,method,note,noteCn,vat,vatNum,remark,attachments:att,
+  items.push({id:newId,date,code:genCode(m),type,typeCn:cat?cat.cn:'',amount,payStatus,staffCode,payer,payerAmounts:payerAmounts,advStaff,advAmt,advPaid:false,method,note,noteCn,vat,vatNum,remark,attachments:att,
     advanceId:advanceId||null,
     status:'draft',approvedDate:'',voucherDate:'',paidDate:'',rejectedReason:'',selected:false,submitted:false,submittedDate:'',
     createdByManager:isMgr()||false,createdByAccountant:isAccountant()||false,prepaid:false,prepaidBy:'',prepaidDate:'',hidden:false,locked:false,lockedBy:'',lockedDate:''});
@@ -1672,7 +1692,7 @@ function openApproval(id){
     <div><b>Người lập:</b> ${sn}</div>
     <div><b>Loại:</b> ${e.type} ${e.typeCn}</div>
     <div><b>Số tiền:</b> <span style="color:var(--p);font-size:15px;font-weight:700">${fmtV(e.amount)}</span></div>
-    <div><b>Người chi trả:</b> ${e.payer||'--'}</div>`;
+    <div><b>Người chi trả:</b> ${e.payer||'--'}${e.payerAmounts?(' <span style="font-size:10px;color:var(--g500)">('+Object.keys(e.payerAmounts).map(function(k){return k+': '+fmtV(e.payerAmounts[k]);}).join(' | ')+')</span>'):''}</div>`;
   if(e.advanceId){
     const linkedAdv=advances.find(x=>x.id===e.advanceId);
     if(linkedAdv){
@@ -1681,7 +1701,7 @@ function openApproval(id){
       h+=`<div style="background:#eff6ff;padding:6px 8px;border-radius:6px;margin:4px 0;border-left:3px solid var(--p)"><b>🔗 Tạm ứng:</b> ${linkedAdv.code||'--'} | <b>Tổng TƯ:</b> ${fmtV(linkedAdv.amount)} | <b>Đã dùng:</b> ${fmtV(usedTotal)} | <b style="color:#f59e0b">Còn lại: ${fmtV(linkedAdv.amount-usedTotal)}</b></div>`;
     }
   }
-  if(isAdvPayer(e.payer)){
+  if(hasAdvPayerInList(e.payer)){
     h+=`<div class="adv-info"><b>${e.payer}:</b> ${advStaffObj?advStaffObj.name+' '+advStaffObj.cn:e.advStaff} | <b>Số tiền tạm ứng:</b> ${fmtV(e.advAmt||0)}`;
     if(e.advPaid) h+=` | <span style="color:var(--s);font-weight:600">Đã hoàn trả NV ✓</span>`;
     else h+=` | <span style="color:var(--w);font-weight:600">Chưa hoàn trả NV</span>`;
@@ -1784,7 +1804,7 @@ function openApproval(id){
     else h+=`<span style="font-size:11px;color:#059669;padding:4px 8px">Chờ quản lý xác nhận nhận tiền...</span>`;
   }
   // Paid: manager/boss can confirm advance repayment
-  if(e.status==='paid'&&isAdvPayer(e.payer)&&!e.advPaid&&isMgr()){h+=`<button class="btn btn-w" onclick="confirmAdvPaid(${id})">Xác nhận hoàn trả NV</button>`;}
+  if(e.status==='paid'&&hasAdvPayerInList(e.payer)&&!e.advPaid&&isMgr()){h+=`<button class="btn btn-w" onclick="confirmAdvPaid(${id})">Xác nhận hoàn trả NV</button>`;}
   if(e.status==='rejected')h+=`<button class="btn btn-p" onclick="chgSt(${id},'draft')">Làm lại</button>`;
   // Thu hồi: anyone can request (except draft/paid/recall_pending)
   if(e.status!=='draft'&&e.status!=='paid'&&e.status!=='recall_pending')h+=`<button class="btn" style="background:rgba(234,88,12,.08);color:#c2410c;border:1px solid rgba(234,88,12,.12)" onclick="requestRecall(${id})">↩️ Thu hồi 撤回</button>`;
@@ -1838,7 +1858,7 @@ function confirmAdvPaid(id){if(!confirm('Xác nhận đã hoàn trả tiền t�
 // ============ ADVANCE REIMBURSEMENT BATCH ============
 function batchAdvReimburse(m){
   if(!isMgr())return;
-  const sel=getSel(m).filter(e=>isAdvPayer(e.payer)&&e.status==='paid'&&!e.advPaid);
+  const sel=getSel(m).filter(e=>hasAdvPayerInList(e.payer)&&e.status==='paid'&&!e.advPaid);
   if(!sel.length){toast('Chọn các khoản NV tạm ứng/KT BP đã hoàn tất & chưa hoàn trả');return;}
   // Group by advStaff
   const byStaff={};sel.forEach(e=>{const k=e.advStaff||'unknown';if(!byStaff[k])byStaff[k]=[];byStaff[k].push(e);});
@@ -1870,7 +1890,7 @@ function batchAdvReimburse(m){
   document.getElementById('approveModal').classList.add('show');
 }
 function createAdvBatch(m){
-  const sel=getSel(m).filter(e=>isAdvPayer(e.payer)&&e.status==='paid'&&!e.advPaid);
+  const sel=getSel(m).filter(e=>hasAdvPayerInList(e.payer)&&e.status==='paid'&&!e.advPaid);
   if(!sel.length){toast('Không có mục hợp lệ');return;}
   const note=document.getElementById('advBatchNote')?.value||'';
   const today=new Date().toISOString().slice(0,10);
@@ -2128,11 +2148,30 @@ function openEdit(id){
   document.getElementById('eAmt').value=e.amount.toLocaleString('vi-VN');
   document.getElementById('ePaySt').value=e.payStatus||'Chưa chi';
   document.getElementById('ePerson').innerHTML=staffOpts();document.getElementById('ePerson').value=e.staffCode;
-  document.getElementById('ePayer').value=e.payer||'Lập Nguyên';
-  document.getElementById('eAdvRow').style.display=isAdvPayer(e.payer)?'':'none';
-  document.getElementById('eAdvAmtRow').style.display=isAdvPayer(e.payer)?'':'none';
+  // Set edit payer checkboxes
+  var _ePayers=(e.payer||'').split(',').map(function(s){return s.trim();});
+  var _eCbs=document.querySelectorAll('input[name="ePayer"]');
+  for(var _ei=0;_ei<_eCbs.length;_ei++){
+    var _pName=_eCbs[_ei].value;
+    _eCbs[_ei].checked=_ePayers.indexOf(_pName)>=0;
+    var _eAmtEl=document.getElementById('ePayerAmt_'+_ei);
+    if(_eAmtEl){
+      if(_eCbs[_ei].checked&&e.payerAmounts&&e.payerAmounts[_pName]){_eAmtEl.value=e.payerAmounts[_pName].toLocaleString('vi-VN');_eAmtEl.style.display='';}
+      else if(_eCbs[_ei].checked){_eAmtEl.value='';_eAmtEl.style.display='';}
+      else{_eAmtEl.value='';_eAmtEl.style.display='none';}
+    }
+  }
+  document.getElementById('eAdvRow').style.display=hasAdvPayerInList(e.payer)?'':'none';
+  document.getElementById('eAdvAmtRow').style.display=hasAdvPayerInList(e.payer)?'':'none';
   document.getElementById('eAdvStaff').innerHTML=staffOpts();document.getElementById('eAdvStaff').value=e.advStaff||'';
   document.getElementById('eAdvAmt').value=e.advAmt?e.advAmt.toLocaleString('vi-VN'):'';
+  // v10: Liên kết TƯ trong edit
+  const eAdvLinkRow=document.getElementById('eAdvLinkRow');
+  const eAdvLinkSel=document.getElementById('eAdvLinkSel');
+  const eAdvLinkInfo=document.getElementById('eAdvLinkInfo');
+  if(eAdvLinkRow){eAdvLinkRow.style.display=hasAdvPayerInList(e.payer)?'':'none';}
+  if(eAdvLinkSel){eAdvLinkSel.innerHTML='<option value="">-- Không liên kết --</option>'+advLinkOpts('edit');if(e.advanceId)eAdvLinkSel.value=e.advanceId;}
+  if(eAdvLinkInfo&&e.advanceId){onEditAdvLinkChange();}else if(eAdvLinkInfo){eAdvLinkInfo.innerHTML='';}
   document.getElementById('eMethod').value=e.method||'Tiền mặt';
   e._prevMethod=e.method||'Tiền mặt'; // Lưu phương thức cũ để detect thay đổi
   document.getElementById('eVat').value=e.vat||'Không';
@@ -2143,14 +2182,73 @@ function openEdit(id){
   document.getElementById('eRemark').value=e.remark||'';
   document.getElementById('editModal').classList.add('show');
 }
+// v10: Edit form — thay đổi người chi trả → hiện/ẩn field tạm ứng
+function onEditPayerChange(){onEditPayerCheckChange();}
+function onEditPayerCheckChange(){
+  var cbs=document.querySelectorAll('input[name="ePayer"]');
+  var hasAdv=false;
+  for(var ci=0;ci<cbs.length;ci++){
+    var amtEl=document.getElementById('ePayerAmt_'+ci);
+    if(amtEl)amtEl.style.display=cbs[ci].checked?'':'none';
+    if(cbs[ci].checked&&isAdvPayer(cbs[ci].value))hasAdv=true;
+  }
+  document.getElementById('eAdvRow').style.display=hasAdv?'':'none';
+  document.getElementById('eAdvAmtRow').style.display=hasAdv?'':'none';
+  var linkRow=document.getElementById('eAdvLinkRow');
+  if(linkRow)linkRow.style.display=hasAdv?'':'none';
+}
+function getEditCheckedPayers(){
+  var cbs=document.querySelectorAll('input[name="ePayer"]:checked');
+  return Array.from(cbs).map(function(cb){
+    var idx=PAYERS.indexOf(cb.value);
+    var amtInput=document.getElementById('ePayerAmt_'+idx);
+    return {name:cb.value,amount:amtInput?parseAmt(amtInput.value):0};
+  });
+}
+function onEditAdvLinkChange(){
+  const sel=document.getElementById('eAdvLinkSel');
+  const info=document.getElementById('eAdvLinkInfo');
+  if(!sel||!info)return;
+  const advId=parseInt(sel.value);
+  if(!advId){info.innerHTML='';return;}
+  const a=advances.find(x=>x.id===advId);
+  if(!a){info.innerHTML='';return;}
+  const linkedExp=items.filter(e=>e.advanceId===a.id);
+  const used=linkedExp.reduce((s,e)=>s+e.amount,0)+(a.cashReturned||0);
+  const remain=a.amount-used;
+  const staff=STAFF.find(s=>s.code===a.staffCode);
+  const sn=staff?staff.name:'';
+  info.innerHTML=`<span style="color:var(--s);font-weight:600">🔗 ${a.code||'TƯ'}</span> · ${sn} | Tổng: ${fmtV(a.amount)} | Đã dùng: ${fmtV(used)} | <b style="color:#f59e0b">Còn: ${fmtV(remain)}</b>`;
+}
 function saveEdit(){
   const id=parseInt(document.getElementById('eId').value);const e=items.find(x=>x.id===id);if(!e)return;
   e.date=document.getElementById('eDate').value;e.type=document.getElementById('eType').value;
   const cat=CATS.find(c=>c.vn===e.type);e.typeCn=cat?cat.cn:'';
   e.amount=parseAmt(document.getElementById('eAmt').value);e.payStatus=document.getElementById('ePaySt').value;
-  e.staffCode=document.getElementById('ePerson').value;e.payer=document.getElementById('ePayer').value;
-  e.advStaff=isAdvPayer(e.payer)?document.getElementById('eAdvStaff').value:'';
-  e.advAmt=isAdvPayer(e.payer)?parseAmt(document.getElementById('eAdvAmt').value):0;
+  e.staffCode=document.getElementById('ePerson').value;
+  var _eChecked=getEditCheckedPayers();
+  if(!_eChecked.length){toast('Chọn ít nhất 1 người chi trả');return;}
+  e.payer=_eChecked.map(function(p){return p.name;}).join(', ');
+  e.payerAmounts={};_eChecked.forEach(function(p){e.payerAmounts[p.name]=p.amount;});
+  var _eHasAdv=_eChecked.some(function(p){return isAdvPayer(p.name);});
+  e.advStaff=_eHasAdv?document.getElementById('eAdvStaff').value:'';
+  e.advAmt=_eHasAdv?parseAmt(document.getElementById('eAdvAmt').value):0;
+  // v10: Lưu liên kết TƯ từ edit
+  const eAdvLinkSel=document.getElementById('eAdvLinkSel');
+  if(_eHasAdv&&eAdvLinkSel&&eAdvLinkSel.value){
+    const newAdvId=parseInt(eAdvLinkSel.value);
+    // Kiểm tra số dư TƯ
+    if(newAdvId){
+      const linkedAdv=advances.find(x=>x.id===newAdvId);
+      if(linkedAdv){
+        const alreadyUsed=items.filter(x=>x.advanceId===newAdvId&&x.id!==e.id).reduce((s,x)=>s+x.amount,0)+(linkedAdv.cashReturned||0);
+        if(e.amount>linkedAdv.amount-alreadyUsed){toast('Số tiền chi tiêu ('+fmtV(e.amount)+') vượt quá số dư TƯ ('+fmtV(linkedAdv.amount-alreadyUsed)+')');return;}
+      }
+    }
+    e.advanceId=newAdvId;
+  }else{
+    if(!hasAdvPayerInList(e.payer))e.advanceId=null;
+  }
   e.method=document.getElementById('eMethod').value;e.vat=document.getElementById('eVat').value;
   e.vatNum=e.vat==='Có'?document.getElementById('eVatNum').value.trim():'';
   e.note=document.getElementById('eNote').value.trim();e.noteCn=document.getElementById('eNoteCn').value.trim();e.remark=(document.getElementById('eRemark').value||'').trim();
@@ -2362,8 +2460,8 @@ function renderM(m){
     if(e.voucherDate)wfDate+='<div style="font-size:8px;color:#4f46e5;margin-top:1px">Nộp CT: '+fmtDate(e.voucherDate)+'</div>';
     if(e.paidDate)wfDate+='<div style="font-size:8px;color:#059669;margin-top:1px">Chi: '+fmtDate(e.paidDate)+'</div>';
     const prepaidTag=e.prepaid?'<div style="margin-top:3px;background:rgba(5,150,105,.06);color:#059669;padding:3px 8px;border-radius:6px;font-size:9px;font-weight:700;border:1px solid rgba(5,150,105,.15)">💵 QL đã ứng<br><span style="font-weight:500">'+e.prepaidBy+' — '+fmtDate(e.prepaidDate)+'</span></div>':'';
-    const qAdvObj=isAdvPayer(e.payer)&&e.advStaff?STAFF.find(s=>s.code===e.advStaff):null;
-    const qAdvTag=isAdvPayer(e.payer)?'<div style="margin-top:3px;background:'+(e.advPaid?'rgba(16,185,129,.15)':'rgba(251,191,36,.15)')+';color:'+(e.advPaid?'#34d399':'#fbbf24')+';padding:3px 8px;border-radius:6px;font-size:9px;font-weight:600;border:1px solid '+(e.advPaid?'rgba(110,231,183,.3)':'rgba(252,211,77,.3)')+'">💰 TƯ: '+(qAdvObj?qAdvObj.name:e.advStaff)+' | '+fmtV(e.advAmt||0)+(e.advPaid?' ✓':' ✗')+'</div>':'';
+    const qAdvObj=hasAdvPayerInList(e.payer)&&e.advStaff?STAFF.find(s=>s.code===e.advStaff):null;
+    const qAdvTag=hasAdvPayerInList(e.payer)?'<div style="margin-top:3px;background:'+(e.advPaid?'rgba(16,185,129,.15)':'rgba(251,191,36,.15)')+';color:'+(e.advPaid?'#34d399':'#fbbf24')+';padding:3px 8px;border-radius:6px;font-size:9px;font-weight:600;border:1px solid '+(e.advPaid?'rgba(110,231,183,.3)':'rgba(252,211,77,.3)')+'">💰 TƯ: '+(qAdvObj?qAdvObj.name:e.advStaff)+' | '+fmtV(e.advAmt||0)+(e.advPaid?' ✓':' ✗')+'</div>':'';
     return '<tr style="cursor:pointer" onclick="if(!event.target.closest(\'input,button,.bi,.st\')){openApproval('+e.id+')}">'+
       '<td><input type="checkbox" '+(e.selected&&e._selCtx===_currentQCtx?'checked':'')+' onchange="event.stopPropagation();toggleOne('+e.id+',\''+_currentQCtx+'\')"/></td>'+
       '<td style="text-align:center;color:var(--g400);font-size:10px">'+(i+1)+'</td>'+
@@ -2388,8 +2486,8 @@ function renderM(m){
     if(e.approvedDate)wfDate+='<div style="font-size:8px;color:#059669;margin-top:1px">Duyệt: '+fmtDate(e.approvedDate)+'</div>';
     if(e.voucherDate)wfDate+='<div style="font-size:8px;color:#4f46e5;margin-top:1px">Nộp CT: '+fmtDate(e.voucherDate)+'</div>';
     const prepaidTag=e.prepaid?'<div style="margin-top:3px;background:rgba(5,150,105,.06);color:#059669;padding:3px 8px;border-radius:6px;font-size:9px;font-weight:700;border:1px solid rgba(5,150,105,.15)">💵 QL đã ứng<br><span style="font-weight:500">'+e.prepaidBy+' — '+fmtDate(e.prepaidDate)+'</span></div>':'';
-    const qAdvObj=isAdvPayer(e.payer)&&e.advStaff?STAFF.find(s=>s.code===e.advStaff):null;
-    const qAdvTag=isAdvPayer(e.payer)?'<div style="margin-top:3px;background:'+(e.advPaid?'rgba(16,185,129,.15)':'rgba(251,191,36,.15)')+';color:'+(e.advPaid?'#34d399':'#fbbf24')+';padding:3px 8px;border-radius:6px;font-size:9px;font-weight:600;border:1px solid '+(e.advPaid?'rgba(110,231,183,.3)':'rgba(252,211,77,.3)')+'">💰 TƯ: '+(qAdvObj?qAdvObj.name:e.advStaff)+' | '+fmtV(e.advAmt||0)+(e.advPaid?' ✓':' ✗')+'</div>':'';
+    const qAdvObj=hasAdvPayerInList(e.payer)&&e.advStaff?STAFF.find(s=>s.code===e.advStaff):null;
+    const qAdvTag=hasAdvPayerInList(e.payer)?'<div style="margin-top:3px;background:'+(e.advPaid?'rgba(16,185,129,.15)':'rgba(251,191,36,.15)')+';color:'+(e.advPaid?'#34d399':'#fbbf24')+';padding:3px 8px;border-radius:6px;font-size:9px;font-weight:600;border:1px solid '+(e.advPaid?'rgba(110,231,183,.3)':'rgba(252,211,77,.3)')+'">💰 TƯ: '+(qAdvObj?qAdvObj.name:e.advStaff)+' | '+fmtV(e.advAmt||0)+(e.advPaid?' ✓':' ✗')+'</div>':'';
     return '<tr style="cursor:pointer" onclick="if(!event.target.closest(\'input,button,.bi\')){openApproval('+e.id+')}">'+
       '<td><input type="checkbox" '+(e.selected&&e._selCtx===_currentQCtx?'checked':'')+' onchange="event.stopPropagation();toggleOne('+e.id+',\''+_currentQCtx+'\')"/></td>'+
       '<td style="text-align:center;color:var(--g400);font-size:10px">'+(i+1)+'</td>'+
@@ -2687,7 +2785,7 @@ function renderM(m){
     if(fltSt&&e.status!==fltSt)return false;
     if(fltPay&&e.payStatus!==fltPay)return false;
     if(fltMethod&&e.method!==fltMethod)return false;
-    if(fltPayer&&e.payer!==fltPayer)return false;
+    if(fltPayer&&!(e.payer||'').split(',').some(function(p){return p.trim()===fltPayer;}))return false;
     if(fltStaff&&e.staffCode!==fltStaff)return false;
     if(fltDateFrom&&e.date<fltDateFrom)return false;
     if(fltDateTo&&e.date>fltDateTo)return false;
@@ -2717,8 +2815,8 @@ function renderM(m){
       const cnFull=e.noteCn||'';
       const remarkStr=e.remark?'<br><span style="font-size:9px;color:var(--pp);font-style:italic">📝 '+e.remark+'</span>':'';
       const payerShort=e.payer==='NV tạm ứng'?'TƯ'+(e.advPaid?' ✓':''):e.payer==='KT Bộ phận'?'KTBP'+(e.advPaid?' ✓':''):e.payer==='Lập Nguyên'?'LN':e.payer==='He Huan Shan'?'HHS':e.payer==='Kế Toán'?'KT':e.payer||'';
-      const advStaffObj2=isAdvPayer(e.payer)&&e.advStaff?STAFF.find(s=>s.code===e.advStaff):null;
-      const advTag=isAdvPayer(e.payer)?'<div style="margin-top:2px;background:'+(e.advPaid?'rgba(5,150,105,.06)':'rgba(217,119,6,.06)')+';color:'+(e.advPaid?'#059669':'#b45309')+';padding:3px 5px;border-radius:4px;font-size:8px;font-weight:600;border:1px solid '+(e.advPaid?'rgba(5,150,105,.15)':'rgba(217,119,6,.15)')+';line-height:1.4">'+(advStaffObj2?advStaffObj2.name:e.advStaff)+'<br>'+fmtV(e.advAmt||0)+'<br>'+(e.advPaid?'<span style="color:#059669">✓ Đã hoàn trả</span>':'<span style="color:#dc2626">✗ Chưa hoàn trả</span>')+'</div>':'';
+      const advStaffObj2=hasAdvPayerInList(e.payer)&&e.advStaff?STAFF.find(s=>s.code===e.advStaff):null;
+      const advTag=hasAdvPayerInList(e.payer)?'<div style="margin-top:2px;background:'+(e.advPaid?'rgba(5,150,105,.06)':'rgba(217,119,6,.06)')+';color:'+(e.advPaid?'#059669':'#b45309')+';padding:3px 5px;border-radius:4px;font-size:8px;font-weight:600;border:1px solid '+(e.advPaid?'rgba(5,150,105,.15)':'rgba(217,119,6,.15)')+';line-height:1.4">'+(advStaffObj2?advStaffObj2.name:e.advStaff)+'<br>'+fmtV(e.advAmt||0)+'<br>'+(e.advPaid?'<span style="color:#059669">✓ Đã hoàn trả</span>':'<span style="color:#dc2626">✗ Chưa hoàn trả</span>')+'</div>':'';
       const submittedStatus=e.submitted?`✓ ${e.submittedDate}`:'—';
       const voucherDateStr=e.voucherDate?fmtDate(e.voucherDate):'';
       const paidDateStr=e.paidDate?fmtDate(e.paidDate):'';
@@ -2797,7 +2895,7 @@ function renderTracker(m,mI){
     if(e.status==='cash_disbursed')g.cash_disbursed.push(e);
     if(e.status==='rejected')g.rejected.push(e);
     if(e.status==='recall_pending')g.recall_pending.push(e);
-    if(isAdvPayer(e.payer)&&!e.advPaid)g.advUnpaid.push(e);
+    if(hasAdvPayerInList(e.payer)&&!e.advPaid)g.advUnpaid.push(e);
   });
   const labels={
     unpaid:{vn:'Chưa thanh toán',cn:'未付款',ic:'⚠',bg:'rgba(220,38,38,.05)',cl:'#dc2626',bd:'rgba(220,38,38,.15)'},
@@ -2909,7 +3007,7 @@ function exportMyCSV(m){
     if(fltSt&&e.status!==fltSt)return false;
     if(fltPay&&e.payStatus!==fltPay)return false;
     if(fltMethod&&e.method!==fltMethod)return false;
-    if(fltPayer&&e.payer!==fltPayer)return false;
+    if(fltPayer&&!(e.payer||'').split(',').some(function(p){return p.trim()===fltPayer;}))return false;
     if(fltSub==='yes'&&!e.submitted)return false;
     if(fltSub==='no'&&e.submitted)return false;
     if(fltQ&&!(e.type.toLowerCase().includes(fltQ)||e.note.toLowerCase().includes(fltQ)||(e.code||'').toLowerCase().includes(fltQ)))return false;
@@ -2941,7 +3039,7 @@ function exportMonthCSV(m){
     if(fltSt&&e.status!==fltSt)return false;
     if(fltPay&&e.payStatus!==fltPay)return false;
     if(fltMethod&&e.method!==fltMethod)return false;
-    if(fltPayer&&e.payer!==fltPayer)return false;
+    if(fltPayer&&!(e.payer||'').split(',').some(function(p){return p.trim()===fltPayer;}))return false;
     if(fltSub==='yes'&&!e.submitted)return false;
     if(fltSub==='no'&&e.submitted)return false;
     if(fltQ&&!(e.type.toLowerCase().includes(fltQ)||e.note.toLowerCase().includes(fltQ)||(e.code||'').toLowerCase().includes(fltQ)))return false;
