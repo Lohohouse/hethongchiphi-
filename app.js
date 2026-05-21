@@ -3,15 +3,24 @@ const APP_VERSION=11;
 const VERSION_CHECK_URL=location.origin+location.pathname.replace(/[^\/]*$/,'')+'version.json';
 const VERSION_CHECK_INTERVAL=5*60*1000; // 5 phút
 
-// Kiểm tra version mới từ GitHub Pages
-async function checkForUpdate(showUI){
+// Kiểm tra version mới từ GitHub Pages (với anti-loop guard)
+let _updateChecking=false;
+async function checkForUpdate(){
+  if(_updateChecking)return false;
+  _updateChecking=true;
   try{
     const res=await fetch(VERSION_CHECK_URL+'?t='+Date.now(),{cache:'no-store',signal:AbortSignal.timeout(10000)});
-    if(!res.ok)return;
+    if(!res.ok){_updateChecking=false;return false;}
     const ver=await res.json();
     if(ver.version&&ver.version>APP_VERSION){
+      // Anti-loop: chỉ reload 1 lần mỗi 60s
+      const lastReload=parseInt(sessionStorage.getItem('app_reload_at')||'0');
+      if(Date.now()-lastReload<60000){
+        console.warn('[UPDATE] Skipped reload — đã reload gần đây');
+        _updateChecking=false;
+        return false;
+      }
       console.log('[UPDATE] Phiên bản mới:',ver.version,'(hiện tại:',APP_VERSION+')');
-      // Hiện thông báo bắt buộc — KHÔNG cho bỏ qua
       const overlay=document.createElement('div');
       overlay.id='forceUpdateOverlay';
       overlay.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);z-index:99999;display:flex;align-items:center;justify-content:center;';
@@ -21,30 +30,22 @@ async function checkForUpdate(showUI){
         +'<p style="margin:0 0 16px;font-size:13px;color:#64748b">Phiên bản '+ver.version+' đã sẵn sàng.<br>Hệ thống sẽ tự động cập nhật.</p>'
         +'<div style="font-size:12px;color:#94a3b8">Đang tải bản mới...</div>'
         +'</div>';
-      document.body.appendChild(overlay);
-      // Force reload sau 1.5s (đủ để user đọc thông báo)
+      if(document.body)document.body.appendChild(overlay);
+      sessionStorage.setItem('app_reload_at',String(Date.now()));
       setTimeout(function(){location.reload(true);},1500);
-      return true; // có update
-    }
-    // Kiểm tra minVersion — chặn phiên bản quá cũ
-    if(ver.minVersion&&APP_VERSION<ver.minVersion){
-      console.error('[UPDATE] Phiên bản',APP_VERSION,'không còn được hỗ trợ! Min:',ver.minVersion);
-      document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#f8fafc">'
-        +'<div style="text-align:center;padding:32px"><h2>⚠️ Phiên bản hết hạn</h2>'
-        +'<p>Vui lòng tải lại trang (Ctrl+Shift+R)</p>'
-        +'<button onclick="location.reload(true)" style="padding:12px 24px;background:#6366f1;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer">Tải lại ngay</button>'
-        +'</div></div>';
+      _updateChecking=false;
       return true;
     }
   }catch(e){
     console.warn('[UPDATE] Không kiểm tra được version:',e.message);
   }
+  _updateChecking=false;
   return false;
 }
 
-// Kiểm tra ngay khi load + lặp lại mỗi 5 phút
-checkForUpdate(true);
-setInterval(function(){checkForUpdate(false);},VERSION_CHECK_INTERVAL);
+// Kiểm tra sau 3s (đợi DOM ready) + lặp lại mỗi 5 phút
+setTimeout(function(){checkForUpdate();},3000);
+setInterval(function(){checkForUpdate();},VERSION_CHECK_INTERVAL);
 
 // ============ USER & AUTH SYSTEM ============
 const ROLE_LABELS={staff:{vn:'Nhân viên',cn:'員工'},accountant:{vn:'KT Bộ phận',cn:'部門會計'},manager:{vn:'Quản lý',cn:'管理'},boss:{vn:'Boss',cn:'老闆'},chief_accountant:{vn:'KT Trưởng',cn:'總會計'},cashier:{vn:'Thủ quỹ',cn:'出納'}};

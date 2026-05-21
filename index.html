@@ -4,31 +4,37 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>支付費用明細表 - LOHO HOUSE v2.0</title>
-<!-- v11: Service Worker — auto-update bắt buộc -->
+<!-- v11: Service Worker — auto-update (với anti-loop guard) -->
 <script>
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').then(function(reg){
-    // Khi SW mới sẵn sàng → kích hoạt ngay
     reg.addEventListener('updatefound',function(){
       var nw=reg.installing;
       nw.addEventListener('statechange',function(){
         if(nw.state==='installed'&&navigator.serviceWorker.controller){
-          // Có bản SW mới → reload để dùng bản mới
-          console.log('[SW] New version ready — reloading...');
-          location.reload(true);
+          // Guard chống reload loop: chỉ reload 1 lần mỗi 30s
+          var lastReload=parseInt(sessionStorage.getItem('sw_reload_at')||'0');
+          if(Date.now()-lastReload>30000){
+            sessionStorage.setItem('sw_reload_at',String(Date.now()));
+            console.log('[SW] New version ready — reloading...');
+            location.reload(true);
+          }else{
+            console.log('[SW] Skipped reload — already reloaded recently');
+          }
         }
       });
     });
-    // Kiểm tra update mỗi 5 phút
     setInterval(function(){reg.update();},5*60*1000);
     console.log('[SW] Registered');
   }).catch(function(e){console.warn('[SW] Registration failed:',e);});
-  // Lắng nghe thông báo version từ SW
   navigator.serviceWorker.addEventListener('message',function(ev){
     if(ev.data&&ev.data.type==='VERSION_INFO'){
       if(typeof APP_VERSION!=='undefined'&&ev.data.version>APP_VERSION){
-        console.log('[SW] Force reload: v'+APP_VERSION+' → v'+ev.data.version);
-        location.reload(true);
+        var lastReload=parseInt(sessionStorage.getItem('sw_reload_at')||'0');
+        if(Date.now()-lastReload>30000){
+          sessionStorage.setItem('sw_reload_at',String(Date.now()));
+          location.reload(true);
+        }
       }
     }
   });
@@ -443,24 +449,6 @@ body>*:not(#printOverlay){display:none !important}
 
 <div class="toast" id="toast"></div>
 
-<!-- v11: Auto-update — kiểm tra version TRƯỚC khi load app.js -->
-<script>
-(function(){
-  var REQUIRED_VER=11;
-  var currentVer=parseInt((document.querySelector('script[src*="app.js"]')||{}).src&&(document.querySelector('script[src*="app.js"]').src.match(/v=(\d+)/)||[])[1])||0;
-  // Nếu app.js version < required → force reload ngay
-  if(currentVer<REQUIRED_VER){
-    try{
-      fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(v){
-        if(v.version&&v.version>currentVer){
-          console.log('[UPDATE] Force reload: current v'+currentVer+' < server v'+v.version);
-          location.reload(true);
-        }
-      }).catch(function(){});
-    }catch(e){}
-  }
-})();
-</script>
 <script src="app.js?v=11"></script>
 </body>
 </html>
