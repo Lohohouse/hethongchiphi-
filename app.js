@@ -2690,7 +2690,12 @@ function renderM(m){
     const mgrABCnt=document.getElementById('mgrAdvBatchCnt_'+m);
     if(mgrABDiv){
       const advBatches=cashBatches.filter(b=>b.type==='adv_reimburse'&&b.itemIds.some(id=>{const it=items.find(x=>x.id===id);return it&&it.date.startsWith(year+'-'+m);}));
-      const pendingAdvB=advBatches.filter(b=>b.status!=='confirmed');
+      // v14: Badge count phải khớp logic hiển thị — check cả b.status VÀ items.advPaid
+      const pendingAdvB=advBatches.filter(b=>{
+        if(b.status==='confirmed')return false;
+        const bIt=b.itemIds.map(id=>items.find(x=>x.id===id)).filter(Boolean);
+        return !bIt.every(it=>it.advPaid);
+      });
       if(mgrABCnt)mgrABCnt.textContent=pendingAdvB.length||'0';
       if(!advBatches.length){mgrABDiv.innerHTML='<div class="empty">Chưa có đợt hoàn trả NV</div>';}
       else{
@@ -2809,7 +2814,12 @@ function renderM(m){
     // Show batches where current user is the recipient (by staffCode)
     const myCode=currentUser?currentUser.staffCode:'';
     const myAdvBatches=cashBatches.filter(b=>b.type==='adv_reimburse'&&b.recipient===myCode&&b.itemIds.some(id=>{const it=items.find(x=>x.id===id);return it&&it.date.startsWith(year+'-'+m);}));
-    const pendingEmpAB=myAdvBatches.filter(b=>b.status!=='confirmed');
+    // v14: Badge count khớp logic hiển thị — check cả status VÀ items.advPaid
+    const pendingEmpAB=myAdvBatches.filter(b=>{
+      if(b.status==='confirmed')return false;
+      const bIt=b.itemIds.map(id=>items.find(x=>x.id===id)).filter(Boolean);
+      return !bIt.every(it=>it.advPaid);
+    });
     if(empABCnt)empABCnt.textContent=pendingEmpAB.length||'0';
     if(!myAdvBatches.length){empABDiv.innerHTML='';if(empABEmpty)empABEmpty.style.display='';}
     else{
