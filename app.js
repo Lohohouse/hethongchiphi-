@@ -1,5 +1,5 @@
 // ============ v12: AUTO-UPDATE — BẮT BUỘC DÙNG BẢN MỚI NHẤT ============
-const APP_VERSION=13;
+const APP_VERSION=14;
 const VERSION_CHECK_URL=location.origin+location.pathname.replace(/[^\/]*$/,'')+'version.json';
 const VERSION_CHECK_INTERVAL=5*60*1000; // 5 phút
 
@@ -3427,6 +3427,72 @@ function saveData(actionType,detail){
 // Helper: saveData với action log
 function saveLog(action,detail){_lastSyncAction=action;_lastSyncDetail=detail||'';saveData();}
 
+// v14: Rebuild cashBatches từ items khi Sheets không trả về cashBatches
+// Items sync bình thường qua Sheets, mỗi item có advBatchId/cashBatchId
+// → dùng thông tin này để tái tạo lại bảng cashBatches
+function rebuildCashBatchesFromItems(){
+  var rebuilt=[];
+  var advMap=new Map();
+  var cashMap=new Map();
+  items.forEach(function(e){
+    if(e.advBatchId){
+      if(!advMap.has(e.advBatchId)){
+        var bDate=e.date,dBy='',cDate='',cBy='';
+        (e.paymentHistory||[]).forEach(function(h){
+          if(h.action==='adv_reimburse_batch'){bDate=h.date||bDate;dBy=h.by||'';}
+          if(h.action==='adv_reimburse_confirmed'){cDate=h.date||'';cBy=h.by||'';}
+        });
+        advMap.set(e.advBatchId,{id:e.advBatchId,type:'adv_reimburse',date:bDate,itemIds:[],total:0,
+          recipient:e.advStaff||'',disbursedBy:dBy,status:e.advPaid?'confirmed':'pending_confirm',
+          note:'',confirmedDate:cDate,confirmedBy:cBy});
+      }
+      var ab=advMap.get(e.advBatchId);
+      ab.itemIds.push(e.id);
+      ab.total+=(e.amount||0);
+      if(!e.advPaid)ab.status='pending_confirm';
+    }
+    if(e.cashBatchId){
+      if(!cashMap.has(e.cashBatchId)){
+        var cbDate=e.cashDisbursedDate||e.date,cbBy=e.cashDisbursedBy||'',cbcDate='',cbcBy='';
+        (e.paymentHistory||[]).forEach(function(h){
+          if(h.action==='cash_disbursed'){cbDate=h.date||cbDate;cbBy=h.by||'';}
+          if(h.action==='cash_confirmed'){cbcDate=h.date||'';cbcBy=h.by||'';}
+        });
+        cashMap.set(e.cashBatchId,{id:e.cashBatchId,date:cbDate,itemIds:[],total:0,
+          recipient:'',disbursedBy:cbBy,status:e.status==='paid'?'confirmed':'disbursed',
+          note:'',confirmedDate:cbcDate,confirmedBy:cbcBy});
+      }
+      var cb=cashMap.get(e.cashBatchId);
+      cb.itemIds.push(e.id);
+      cb.total+=(e.amount||0);
+      // Extract recipient from paymentHistory
+      if(!cb.recipient){
+        (e.paymentHistory||[]).forEach(function(h){
+          if(h.action==='cash_disbursed'&&h.note){
+            var match=h.note.match(/→\s*(.+)/);
+            if(match){var sn=match[1].trim();var sf=typeof STAFF!=='undefined'?STAFF.find(function(s){return s.name===sn||staffDisplayName(s.code)===sn;}):null;if(sf)cb.recipient=sf.code;}
+          }
+        });
+      }
+    }
+  });
+  advMap.forEach(function(b){rebuilt.push(b);});
+  cashMap.forEach(function(b){rebuilt.push(b);});
+  return rebuilt;
+}
+function ensureCashBatches(){
+  if(cashBatches.length===0&&items.some(function(e){return e.advBatchId||e.cashBatchId;})){
+    var rebuilt=rebuildCashBatchesFromItems();
+    if(rebuilt.length>0){
+      cashBatches=rebuilt;
+      cashBatchNextId=Math.max(cashBatchNextId||1,cashBatches.reduce(function(mx,b){return Math.max(mx,b.id||0);},0)+1);
+      console.log('[REBUILD] Rebuilt cashBatches from items:',cashBatches.length,'batches, nextId:',cashBatchNextId);
+      return true;
+    }
+  }
+  return false;
+}
+
 // === Load dữ liệu từ localStorage (đồng bộ, nhanh) ===
 function loadLocalData(){
   try{
@@ -3455,6 +3521,8 @@ function loadLocalData(){
       else if(e.method&&e.method!=='Tiền mặt'&&e.status==='cashier_review'){e.status='boss_approved';e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'method_changed',by:'System',date:new Date().toISOString().slice(0,10),note:'Auto-fix: CK phải qua KT Trưởng'});fixCount++;}
     });
     if(fixCount){console.log('[loadLocalData] Auto-fixed',fixCount,'method/status mismatches');try{const json=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});localStorage.setItem(LS_KEY,json);}catch(se){}}
+    // v14: Rebuild cashBatches nếu trống nhưng items có batchId
+    if(ensureCashBatches()){try{const json2=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});localStorage.setItem(LS_KEY,json2);}catch(se){}}
   }catch(e){console.error('loadLocalData error:',e);}
 }
 // === Load đầy đủ: local + Sheets (dùng cho saveData gọi lại) ===
@@ -3664,6 +3732,10 @@ async function syncToSheets(data){
       cashBatchNextId=Math.max(cashBatchNextId||1,remoteCashBatchNextId,cashBatches.reduce((mx,b)=>Math.max(mx,b.id||0),0)+1);
     }
 
+    // v14: Rebuild cashBatches từ merged items nếu trống
+    items=mergedItems; // set items trước để rebuildCashBatchesFromItems dùng được
+    ensureCashBatches();
+
     // Bước 4: Cập nhật local data với merged result
     items=mergedItems;
     nextId=mergedNextId;
@@ -3834,6 +3906,8 @@ async function loadFromSheets(){
         cashBatchNextId=Math.max(cashBatchNextId||1,r.cashBatchNextId||1,cashBatches.reduce((mx,b)=>Math.max(mx,b.id||0),0)+1);
         console.log('[LOAD] CashBatches synced:',cashBatches.length);
       }
+      // v14: Fallback — rebuild cashBatches từ items nếu Sheets không trả về
+      ensureCashBatches();
 
       // v9: Auto-fix method/status mismatch sau merge
       let loadFixCount=0;

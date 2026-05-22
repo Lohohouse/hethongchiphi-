@@ -1,1 +1,1 @@
-{"version":13,"minVersion":13,"updatedAt":"2026-05-21T15:00:00Z","note":"v13: Fix data sync - force clear stale cache on version upgrade"}
+{"version":14,"minVersion":14,"updatedAt":"2026-05-22T10:00:00Z","note":"v14: Auto-rebuild cashBatches from items when Sheets doesn't return them"}
