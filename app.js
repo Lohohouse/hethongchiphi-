@@ -341,6 +341,32 @@ async function readAllFiles(fileInput){
 }
 
 // ============ DRIVE UPLOAD ============
+// Loading overlay toàn màn hình — hiển thị khi upload/tạo PDF
+function showDriveLoading(msg){
+  let ov=document.getElementById('driveLoadingOv');
+  if(!ov){
+    ov=document.createElement('div');ov.id='driveLoadingOv';
+    ov.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    ov.innerHTML='<div style="background:#fff;border-radius:16px;padding:32px 28px;max-width:380px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)">'
+      +'<div style="margin-bottom:16px"><div style="width:48px;height:48px;border:4px solid #e2e8f0;border-top-color:#6366f1;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto"></div></div>'
+      +'<div id="driveLoadingMsg" style="font-size:15px;font-weight:600;color:#1e293b;margin-bottom:8px"></div>'
+      +'<div id="driveLoadingSub" style="font-size:12px;color:#64748b">Vui lòng đợi, không tắt trang...</div>'
+      +'</div>';
+    if(!document.getElementById('driveSpinStyle')){const st=document.createElement('style');st.id='driveSpinStyle';st.textContent='@keyframes spin{to{transform:rotate(360deg)}}';document.head.appendChild(st);}
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  document.getElementById('driveLoadingMsg').textContent=msg||'Đang xử lý...';
+}
+function hideDriveLoading(){
+  const ov=document.getElementById('driveLoadingOv');
+  if(ov)ov.style.display='none';
+}
+function updateDriveLoading(msg,sub){
+  const m=document.getElementById('driveLoadingMsg');if(m)m.textContent=msg;
+  const s=document.getElementById('driveLoadingSub');if(s&&sub)s.textContent=sub;
+}
+
 async function uploadFilesToDrive(itemId, fileInput){
   if(!fileInput||!fileInput.files||!fileInput.files.length)return [];
   const files=[];
@@ -360,10 +386,10 @@ async function uploadFilesToDrive(itemId, fileInput){
     const resp=await fetch(DRIVE_API,{method:'POST',headers:{'Content-Type':'text/plain'},
       body:JSON.stringify({action:'uploadFiles',itemId:itemId,files:files})});
     const r=await resp.json();
-    if(!r.ok){toast('Upload lỗi: '+(r.error||''));return [];}
+    if(!r.ok){hideDriveLoading();toast('Upload lỗi: '+(r.error||''));return [];}
     return (r.results||[]).filter(x=>x.ok).map(x=>({name:x.name,fileId:x.fileId,url:x.url,directUrl:x.directUrl||'',mimeType:x.mimeType,size:x.size}));
   }catch(err){
-    toast('Lỗi upload: '+err.message);return [];
+    hideDriveLoading();toast('Lỗi upload: '+err.message);return [];
   }
 }
 async function addAttachmentToItem(itemId){
@@ -372,15 +398,17 @@ async function addAttachmentToItem(itemId){
   inp.accept='image/*,.pdf,.doc,.docx,.xls,.xlsx';
   inp.onchange=async function(){
     if(!inp.files||!inp.files.length)return;
-    toast('Đang upload '+inp.files.length+' file...',3000);
+    showDriveLoading('Đang upload '+inp.files.length+' file lên Drive...');
     const uploaded=await uploadFilesToDrive(itemId,inp);
+    hideDriveLoading();
     if(!uploaded.length){toast('Upload không thành công');return;}
     if(!e.attachments)e.attachments=[];
     uploaded.forEach(f=>e.attachments.push(f));
-    toast('Đã thêm '+uploaded.length+' file đính kèm');
+    toast('✅ Đã thêm '+uploaded.length+' file đính kèm');
     syncImmediate('add-attachment','item '+itemId+' +'+uploaded.length+' files');
     // Refresh popup nếu đang mở
     if(document.getElementById('approveModal').classList.contains('show'))openApproval(itemId);
+    rerender();
   };
   inp.click();
 }
@@ -394,18 +422,39 @@ async function generateBatchPDF(month){
       staffName:staffObj?staffObj.name:'',vat:e.vat||'',vatNum:e.vatNum||'',
       attachments:(e.attachments||[]).map(a=>({name:a.name,fileId:a.fileId||'',mimeType:a.mimeType||'',url:a.url||''}))};
   });
-  toast('Đang tạo PDF phiếu chi ('+pdfItems.length+' hạng mục)...',5000);
+  showDriveLoading('Đang tạo PDF phiếu chi...');
+  updateDriveLoading('Đang tạo PDF phiếu chi...','Gồm '+pdfItems.length+' hạng mục — vui lòng đợi 10-30 giây');
   try{
     const resp=await fetch(DRIVE_API,{method:'POST',headers:{'Content-Type':'text/plain'},
       body:JSON.stringify({action:'generatePDF',items:pdfItems})});
     const r=await resp.json();
+    hideDriveLoading();
     if(!r.ok){toast('Tạo PDF lỗi: '+(r.error||''));return;}
-    // Mở PDF trong tab mới
-    window.open(r.pdfUrl,'_blank');
-    toast('Đã tạo PDF phiếu chi');
+    // Hiển thị popup kết quả với link PDF
+    showPDFResult(r.pdfUrl,r.downloadUrl,pdfItems.length);
   }catch(err){
+    hideDriveLoading();
     toast('Lỗi tạo PDF: '+err.message);
   }
+}
+function showPDFResult(viewUrl,downloadUrl,count){
+  let ov=document.getElementById('pdfResultOv');
+  if(!ov){
+    ov=document.createElement('div');ov.id='pdfResultOv';
+    ov.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    document.body.appendChild(ov);
+  }
+  ov.style.display='flex';
+  ov.innerHTML='<div style="background:#fff;border-radius:16px;padding:32px 28px;max-width:420px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)">'
+    +'<div style="font-size:48px;margin-bottom:12px">✅</div>'
+    +'<h3 style="margin:0 0 8px;font-size:18px;color:#1e293b">Tạo PDF thành công!</h3>'
+    +'<p style="margin:0 0 20px;font-size:13px;color:#64748b">Đã tạo phiếu chi cho '+count+' hạng mục.<br>File PDF được lưu trên Google Drive.</p>'
+    +'<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">'
+    +'<a href="'+viewUrl+'" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:10px 20px;background:#6366f1;color:#fff;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none">📄 Xem PDF</a>'
+    +'<a href="'+(downloadUrl||viewUrl)+'" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:10px 20px;background:#059669;color:#fff;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none">📥 Tải về</a>'
+    +'<button onclick="document.getElementById(\'pdfResultOv\').style.display=\'none\'" style="padding:10px 20px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:13px;cursor:pointer">Đóng</button>'
+    +'</div>'
+    +'</div>';
 }
 
 // ============ FILE PREVIEW ============
@@ -1171,8 +1220,9 @@ async function addItem(m){
   // Upload file lên Drive (nếu có), fallback về base64 nếu Drive lỗi
   let att=[];
   if(fileInput&&fileInput.files&&fileInput.files.length){
-    toast('Đang upload file đính kèm...',3000);
+    showDriveLoading('Đang upload '+fileInput.files.length+' file đính kèm...');
     att=await uploadFilesToDrive(newId,fileInput);
+    hideDriveLoading();
     if(!att.length)att=await readAllFiles(fileInput); // fallback
   }
 
@@ -1499,8 +1549,9 @@ async function addAdvance(){
   // Upload file lên Drive nếu có
   let att=[];
   if(fileInput&&fileInput.files&&fileInput.files.length){
-    toast('Đang upload file đính kèm...',3000);
+    showDriveLoading('Đang upload '+fileInput.files.length+' file đính kèm...');
     att=await uploadFilesToDrive('adv_'+advNextId,fileInput);
+    hideDriveLoading();
     if(!att.length)att=await readAllFiles(fileInput);
   }
 
@@ -2652,7 +2703,7 @@ function renderM(m){
       '<td class="amt">'+fmtV(e.amount)+'</td>'+
       '<td style="font-size:9px"><span style="padding:1px 5px;border-radius:4px;background:'+(e.method==='Tiền mặt'?'rgba(217,119,6,.06)':'rgba(37,99,235,.08)')+';color:'+(e.method==='Tiền mặt'?'#b45309':'#2563eb')+'">'+(e.method==='Tiền mặt'?'TM':'CK')+'</span></td>'+
       '<td style="font-size:10px">'+(staff?staff.name:e.staffCode)+'</td>'+
-      '<td style="text-align:center">'+(e.attachments&&e.attachments.length?'<span style="font-size:11px;cursor:pointer" title="'+e.attachments.length+' file đính kèm 附件" onclick="event.stopPropagation();previewAttachments('+e.id+')">📎<span style="font-size:8px;color:var(--p);font-weight:700">'+e.attachments.length+'</span></span>':'')+'</td>'+
+      '<td style="text-align:center">'+(e.attachments&&e.attachments.length?'<span style="font-size:11px;cursor:pointer" title="'+e.attachments.length+' file đính kèm 附件" onclick="event.stopPropagation();previewAttachments('+e.id+')">📎<span style="font-size:8px;color:var(--p);font-weight:700">'+e.attachments.length+'</span></span>':'')+'<button class="bi" title="Thêm đính kèm 添加附件" onclick="event.stopPropagation();addAttachmentToItem('+e.id+')" style="font-size:10px;color:var(--p);opacity:.6">➕</button></td>'+
       '<td><span class="st '+st.c+'" onclick="event.stopPropagation();openApproval('+e.id+')">'+st.l+'</span></td>'+
       '<td style="white-space:nowrap">'+(e.status==='draft'?'<button class="bi" title="Chỉnh sửa 編輯" onclick="event.stopPropagation();openEdit('+e.id+')">✏️</button>':'')+(e.status==='approved'&&canManageVoucher()?'<button class="bi" title="Nộp về CT 提交公司" onclick="event.stopPropagation();submitVoucherItem('+e.id+')" style="color:#7c3aed;font-size:12px">📤</button>':'')+'<button class="bi" title="In phiếu 列印" onclick="event.stopPropagation();printItem('+e.id+')">🖨️</button><button class="bi" onclick="event.stopPropagation();openApproval('+e.id+')">👁</button></td></tr>';
   };
@@ -3030,7 +3081,7 @@ function renderM(m){
         <td class="amt">${fmtV(e.amount)}</td>
         <td style="font-size:9px">${!e.locked?'<select onchange="event.stopPropagation();changePayStatus('+e.id+',this.value)" style="padding:2px 4px;border:1px solid '+(e.payStatus==='Đã chi'?'rgba(5,150,105,.3)':e.payStatus==='Đã cọc'?'rgba(217,119,6,.3)':'var(--g300)')+';border-radius:4px;font-size:9px;background:'+(e.payStatus==='Đã chi'?'var(--sl)':e.payStatus==='Đã cọc'?'var(--wl)':'var(--g100)')+';color:'+(e.payStatus==='Đã chi'?'var(--s)':e.payStatus==='Đã cọc'?'var(--w)':'var(--g600)')+';cursor:pointer"><option value="Chưa chi"'+(e.payStatus==='Chưa chi'?' selected':'')+'>Chưa chi</option><option value="Đã chi"'+(e.payStatus==='Đã chi'?' selected':'')+'>Đã chi</option><option value="Đã cọc"'+(e.payStatus==='Đã cọc'?' selected':'')+'>Đã cọc</option></select>':'<span style="padding:1px 5px;border-radius:4px;background:'+(e.payStatus==='Đã chi'?'var(--sl)':e.payStatus==='Đã cọc'?'var(--wl)':'var(--g100)')+';color:'+(e.payStatus==='Đã chi'?'var(--s)':e.payStatus==='Đã cọc'?'var(--w)':'var(--g600)')+'">'+e.payStatus+' 🔐</span>'}${methodTag}${e.prepaid?'<div style="margin-top:2px;background:rgba(5,150,105,.06);color:#059669;padding:2px 5px;border-radius:4px;font-size:8px;font-weight:700;border:1px solid rgba(5,150,105,.15)">💵 QL ứng</div>':''}</td>
         <td style="font-size:10px">${staff?staff.name:e.staffCode}</td>
-        <td style="text-align:center">${hasAtt?'<span style="font-size:11px;cursor:pointer" title="'+e.attachments.length+' file đính kèm 附件" onclick="event.stopPropagation();previewAttachments('+e.id+')">📎<span style="font-size:8px;color:var(--p);font-weight:700">'+e.attachments.length+'</span></span>':''}</td>
+        <td style="text-align:center">${hasAtt?'<span style="font-size:11px;cursor:pointer" title="'+e.attachments.length+' file đính kèm 附件" onclick="event.stopPropagation();previewAttachments('+e.id+')">📎<span style="font-size:8px;color:var(--p);font-weight:700">'+e.attachments.length+'</span></span>':''}<button class="bi" title="Thêm đính kèm 添加附件" onclick="event.stopPropagation();addAttachmentToItem(${e.id})" style="font-size:10px;color:var(--p);opacity:.6">➕</button></td>
         <td><span class="st ${st.c}" style="cursor:pointer" onclick="event.stopPropagation();openApproval(${e.id})">${st.l}</span>${subIcon}</td>
         ${colSubmitCT()?`<td style="font-size:9px;color:var(--g500)">${(['voucher','boss_approved','paid'].includes(e.status))?voucherDateStr:''}</td>`:''}
         ${colBossApproval()?`<td style="font-size:9px;color:${e.status==='boss_approved'||e.status==='paid'?'var(--s)':'var(--g400)'}">${e.bossApprovedDate||''}</td>`:''}
@@ -3336,17 +3387,36 @@ return '<div class="pv-page">'+
 '<div class="pf" style="left:22.8%;top:76.4%;font-size:12px;font-weight:600;width:52%;height:14%;line-height:1.5;overflow:hidden;word-wrap:break-word">'+nUp+'</div>'+
 '</div>';
 }
+function buildAttachmentPrintHTML(e){
+  if(!e.attachments||!e.attachments.length)return '';
+  let h='<div style="page-break-before:always;padding:20px;font-family:sans-serif">';
+  h+='<h3 style="text-align:center;margin-bottom:12px">📎 File đính kèm — '+(e.code||'')+'</h3>';
+  h+='<p style="text-align:center;font-size:12px;color:#64748b;margin-bottom:16px">'+e.note+' | '+fmtV(e.amount)+'</p>';
+  e.attachments.forEach(function(a,i){
+    const isDrive=a.fileId||false;
+    const isImg=isDrive?(a.mimeType&&a.mimeType.startsWith('image/')):(a.url&&(a.url.startsWith('data:image')||(a.type&&a.type.startsWith('image/'))));
+    if(isImg){
+      const imgSrc=isDrive?('https://drive.google.com/thumbnail?id='+a.fileId+'&sz=w800'):a.url;
+      h+='<div style="margin-bottom:16px;text-align:center"><p style="font-size:11px;color:#64748b;margin-bottom:4px">'+(i+1)+'. '+a.name+'</p><img src="'+imgSrc+'" style="max-width:90%;max-height:500px;border:1px solid #e2e8f0;border-radius:8px"/></div>';
+    }else{
+      const link=isDrive?a.url:'';
+      h+='<div style="margin-bottom:8px;padding:8px 12px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><span style="font-size:12px">📄 '+(i+1)+'. '+a.name+'</span>'+(link?' — <a href="'+link+'" target="_blank" style="font-size:11px;color:#6366f1">Mở trên Drive</a>':'')+'</div>';
+    }
+  });
+  h+='</div>';
+  return h;
+}
 function printItem(id){
 const e=items.find(x=>x.id===id);if(!e)return;
-document.getElementById('printPages').innerHTML=buildVoucherHTML(e);
-document.getElementById('printBadge').textContent='1 phiếu';
+document.getElementById('printPages').innerHTML=buildVoucherHTML(e)+buildAttachmentPrintHTML(e);
+document.getElementById('printBadge').textContent='1 phiếu'+((e.attachments&&e.attachments.length)?' + '+e.attachments.length+' đính kèm':'');
 document.getElementById('printOverlay').classList.add('show');
 }
 
 function batchPrint(m){
 const sel=getSel(m);
 if(!sel.length){toast('Chọn mục cần in');return;}
-document.getElementById('printPages').innerHTML=sel.map(e=>buildVoucherHTML(e)).join('');
+document.getElementById('printPages').innerHTML=sel.map(e=>buildVoucherHTML(e)+buildAttachmentPrintHTML(e)).join('');
 document.getElementById('printBadge').textContent=sel.length+' phiếu';
 document.getElementById('printOverlay').classList.add('show');
 }
