@@ -1,1 +1,1 @@
-{"version":14,"minVersion":14,"updatedAt":"2026-05-22T10:00:00Z","note":"v14: Auto-rebuild cashBatches from items when Sheets doesn't return them"}
+{"version":15,"minVersion":14,"updatedAt":"2026-05-25T10:00:00Z","note":"v15: Upload file lên Google Drive + Tạo PDF phiếu chi hàng loạt"}

@@ -1,5 +1,5 @@
 // ============ v12: AUTO-UPDATE — BẮT BUỘC DÙNG BẢN MỚI NHẤT ============
-const APP_VERSION=14;
+const APP_VERSION=15;
 const VERSION_CHECK_URL=location.origin+location.pathname.replace(/[^\/]*$/,'')+'version.json';
 const VERSION_CHECK_INTERVAL=5*60*1000; // 5 phút
 
@@ -340,11 +340,79 @@ async function readAllFiles(fileInput){
   return Promise.all(promises);
 }
 
+// ============ DRIVE UPLOAD ============
+async function uploadFilesToDrive(itemId, fileInput){
+  if(!fileInput||!fileInput.files||!fileInput.files.length)return [];
+  const files=[];
+  for(const f of fileInput.files){
+    if(f.size>10*1024*1024){toast('File "'+f.name+'" quá lớn (>10MB), bỏ qua');continue;}
+    const base64=await new Promise(resolve=>{
+      const r=new FileReader();
+      r.onload=()=>resolve(r.result.split(',')[1]);
+      r.onerror=()=>resolve('');
+      r.readAsDataURL(f);
+    });
+    if(!base64)continue;
+    files.push({fileName:f.name,mimeType:f.type||'application/octet-stream',base64:base64});
+  }
+  if(!files.length)return [];
+  try{
+    const resp=await fetch(DRIVE_API,{method:'POST',headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'uploadFiles',itemId:itemId,files:files})});
+    const r=await resp.json();
+    if(!r.ok){toast('Upload lỗi: '+(r.error||''));return [];}
+    return (r.results||[]).filter(x=>x.ok).map(x=>({name:x.name,fileId:x.fileId,url:x.url,directUrl:x.directUrl||'',mimeType:x.mimeType,size:x.size}));
+  }catch(err){
+    toast('Lỗi upload: '+err.message);return [];
+  }
+}
+async function addAttachmentToItem(itemId){
+  const e=items.find(x=>x.id===itemId);if(!e)return;
+  const inp=document.createElement('input');inp.type='file';inp.multiple=true;
+  inp.accept='image/*,.pdf,.doc,.docx,.xls,.xlsx';
+  inp.onchange=async function(){
+    if(!inp.files||!inp.files.length)return;
+    toast('Đang upload '+inp.files.length+' file...',3000);
+    const uploaded=await uploadFilesToDrive(itemId,inp);
+    if(!uploaded.length){toast('Upload không thành công');return;}
+    if(!e.attachments)e.attachments=[];
+    uploaded.forEach(f=>e.attachments.push(f));
+    toast('Đã thêm '+uploaded.length+' file đính kèm');
+    syncImmediate('add-attachment','item '+itemId+' +'+uploaded.length+' files');
+    // Refresh popup nếu đang mở
+    if(document.getElementById('approveModal').classList.contains('show'))openApproval(itemId);
+  };
+  inp.click();
+}
+async function generateBatchPDF(month){
+  const sel=getSel(month);
+  if(!sel.length){toast('Chọn ít nhất 1 hạng mục');return;}
+  const pdfItems=sel.map(e=>{
+    const staffObj=STAFF.find(s=>s.code===e.staffCode);
+    return {id:e.id,code:e.code||'',date:e.date||'',note:e.note||'',noteCn:e.noteCn||'',
+      amount:e.amount||0,method:e.method||'',payer:e.payer||'',
+      staffName:staffObj?staffObj.name:'',vat:e.vat||'',vatNum:e.vatNum||'',
+      attachments:(e.attachments||[]).map(a=>({name:a.name,fileId:a.fileId||'',mimeType:a.mimeType||'',url:a.url||''}))};
+  });
+  toast('Đang tạo PDF phiếu chi ('+pdfItems.length+' hạng mục)...',5000);
+  try{
+    const resp=await fetch(DRIVE_API,{method:'POST',headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'generatePDF',items:pdfItems})});
+    const r=await resp.json();
+    if(!r.ok){toast('Tạo PDF lỗi: '+(r.error||''));return;}
+    // Mở PDF trong tab mới
+    window.open(r.pdfUrl,'_blank');
+    toast('Đã tạo PDF phiếu chi');
+  }catch(err){
+    toast('Lỗi tạo PDF: '+err.message);
+  }
+}
+
 // ============ FILE PREVIEW ============
 let _fpFiles=[];let _fpIdx=0;
 function openFilePreview(files,startIdx){
   if(!files||!files.length){toast('Không có file đính kèm');return;}
-  _fpFiles=files.filter(f=>f.url&&!f.url.startsWith('blob:'));
+  _fpFiles=files.filter(f=>(f.url&&!f.url.startsWith('blob:'))||f.fileId);
   if(!_fpFiles.length){toast('File đính kèm đã hết hạn, cần upload lại');return;}
   _fpIdx=startIdx||0;
   if(_fpIdx>=_fpFiles.length)_fpIdx=0;
@@ -376,9 +444,20 @@ function fpRender(){
   document.getElementById('fpNext').style.display=_fpFiles.length>1?'':'none';
   const body=document.getElementById('fpBody');
   const ext=(f.name||'').split('.').pop().toLowerCase();
-  const isImg=ext.match(/^(jpg|jpeg|png|gif|bmp|webp|svg)$/)||(f.url&&f.url.startsWith('data:image'));
-  const isPdf=ext==='pdf'||(f.url&&f.url.startsWith('data:application/pdf'));
-  if(isImg){
+  const isDrive=f.fileId||((f.url||'').indexOf('drive.google.com')!==-1);
+  const isImg=ext.match(/^(jpg|jpeg|png|gif|bmp|webp|svg)$/)||(f.url&&f.url.startsWith('data:image'))||(isDrive&&f.mimeType&&f.mimeType.startsWith('image/'));
+  const isPdf=ext==='pdf'||(f.url&&f.url.startsWith('data:application/pdf'))||(isDrive&&f.mimeType&&f.mimeType==='application/pdf');
+  if(isDrive){
+    // File trên Drive → mở trong tab mới hoặc hiển thị thumbnail
+    if(isImg){
+      const imgSrc=f.directUrl||'https://drive.google.com/thumbnail?id='+f.fileId+'&sz=w1200';
+      body.innerHTML='<img src="'+imgSrc+'" alt="'+f.name+'" onclick="this.style.maxWidth=this.style.maxWidth===\'none\'?\'95%\':\'none\';this.style.cursor=this.style.maxWidth===\'none\'?\'zoom-out\':\'zoom-in\'" style="cursor:zoom-in"/>';
+    }else if(isPdf){
+      body.innerHTML='<iframe src="https://drive.google.com/file/d/'+f.fileId+'/preview" allow="autoplay"></iframe>';
+    }else{
+      body.innerHTML='<div class="fp-unsupported"><div style="font-size:48px;margin-bottom:12px">📄</div><div style="font-weight:600;margin-bottom:4px">'+f.name+'</div><div>Bấm để xem trên Google Drive</div><button class="btn btn-p" style="margin-top:12px" onclick="window.open(\''+f.url+'\',\'_blank\')">🔗 Mở trên Drive</button></div>';
+    }
+  }else if(isImg){
     body.innerHTML='<img src="'+f.url+'" alt="'+f.name+'" onclick="this.style.maxWidth=this.style.maxWidth===\'none\'?\'95%\':\'none\';this.style.cursor=this.style.maxWidth===\'none\'?\'zoom-out\':\'zoom-in\'" style="cursor:zoom-in"/>';
   }else if(isPdf){
     body.innerHTML='<iframe src="'+f.url+'"></iframe>';
@@ -1071,7 +1150,6 @@ async function addItem(m){
   const vatNum=vat==='Có'?(document.getElementById('fVatNum_'+m).value.trim()):'';
   const remark=(document.getElementById('fRemark_'+m)?.value||'').trim();
   const fileInput=document.getElementById('fFile_'+m);
-  const att=await readAllFiles(fileInput);
 
   // Advance link
   const advLinkSel=document.getElementById('fAdvLink_'+m);
@@ -1089,6 +1167,15 @@ async function addItem(m){
   // v5: ID = timestamp-based để tránh trùng giữa các trình duyệt
   const newId=Date.now()+Math.floor(Math.random()*1000);
   if(newId>=nextId)nextId=newId+1;
+
+  // Upload file lên Drive (nếu có), fallback về base64 nếu Drive lỗi
+  let att=[];
+  if(fileInput&&fileInput.files&&fileInput.files.length){
+    toast('Đang upload file đính kèm...',3000);
+    att=await uploadFilesToDrive(newId,fileInput);
+    if(!att.length)att=await readAllFiles(fileInput); // fallback
+  }
+
   items.push({id:newId,date,code:genCode(m),type,typeCn:cat?cat.cn:'',amount,payStatus,staffCode,payer,payerAmounts:payerAmounts,advStaff,advAmt,advPaid:false,method,note,noteCn,vat,vatNum,remark,attachments:att,
     advanceId:advanceId||null,
     status:'draft',approvedDate:'',voucherDate:'',paidDate:'',rejectedReason:'',selected:false,submitted:false,submittedDate:'',
@@ -1188,6 +1275,7 @@ function buildBatchBtns(m,ctx){
   if(!isCashier()&&!isChiefAccountant())b+='<button class="btn btn-sm btn-d" onclick="batchDelete(\''+m+'\')">Xoá 刪除</button>';
   if(isStaff()||isAccountant())b+='<button class="btn btn-sm btn-p" onclick="batchSend(\''+m+'\')">Gửi duyệt 送審</button>';
   b+='<button class="btn btn-sm btn-print" onclick="batchPrint(\''+m+'\')">🖨️ In 列印</button>';
+  b+='<button class="btn btn-sm" style="background:rgba(220,38,38,.06);color:#dc2626;border:1px solid rgba(220,38,38,.12)" onclick="generateBatchPDF(\''+m+'\')">📄 Tạo PDF 生成PDF</button>';
   b+='<button class="btn btn-sm btn-o" onclick="'+(isCashier()?'exportCashierCSV':isStaff()?'exportMyCSV':'exportMonthCSV')+'(\''+m+'\')">📥 Xuất CSV 匯出</button>';
   // Queue-only buttons (not shown in main table which has completed items)
   if(ctx!=='main'){
@@ -1403,11 +1491,18 @@ async function addAdvance(){
   const note=document.getElementById('advNote').value.trim();
   const noteCn=document.getElementById('advNoteCn').value.trim();
   const fileInput=document.getElementById('advFile');
-  const att=await readAllFiles(fileInput);
 
   if(!staff){toast('Chọn người nộp');return;}
   if(!amt){toast('Nhập số tiền');return;}
   if(!reqDate){toast('Chọn ngày tạm ứng');return;}
+
+  // Upload file lên Drive nếu có
+  let att=[];
+  if(fileInput&&fileInput.files&&fileInput.files.length){
+    toast('Đang upload file đính kèm...',3000);
+    att=await uploadFilesToDrive('adv_'+advNextId,fileInput);
+    if(!att.length)att=await readAllFiles(fileInput);
+  }
 
   advances.push({id:advNextId++,code:genAdvCode(),staffCode:staff,note,noteCn,amount:amt,requestDate:reqDate,returnDate:retDate||'',attachments:att,
     status:'draft',approvedDate:'',returnedDate:'',rejectedReason:'',selected:false,cashReturned:0,returnNote:''});
@@ -1780,10 +1875,14 @@ function openApproval(id){
     ${e.attachments&&e.attachments.length?'<div style="margin-top:8px"><b>Đính kèm:</b><div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:6px">'+e.attachments.map((a,ai)=>{
       const isBlob=a.url&&a.url.startsWith('blob:');
       if(isBlob)return '<span style="font-size:10px;color:var(--g400);padding:4px 8px;background:var(--g100);border-radius:6px" title="File đã hết hạn - cần upload lại">⚠️ '+a.name+' (hết hạn)</span>';
-      const isImg=a.url&&(a.url.startsWith('data:image')||(a.type&&a.type.startsWith('image/')));
-      if(isImg)return '<span style="display:inline-block;cursor:pointer" onclick="previewAttachments('+e.id+')"><img src="'+a.url+'" style="max-width:80px;max-height:60px;border-radius:6px;border:1px solid var(--g200)" title="Bấm để xem: '+a.name+'"/></span>';
+      const isDrive=a.fileId||((a.url||'').indexOf('drive.google.com')!==-1);
+      const isImg=isDrive?(a.mimeType&&a.mimeType.startsWith('image/')):a.url&&(a.url.startsWith('data:image')||(a.type&&a.type.startsWith('image/')));
+      const thumbSrc=isDrive&&isImg?(a.directUrl||'https://drive.google.com/thumbnail?id='+a.fileId+'&sz=w200'):a.url;
+      if(isImg&&thumbSrc)return '<span style="display:inline-block;cursor:pointer" onclick="'+(isDrive?'window.open(\''+a.url+'\',\'_blank\')':'previewAttachments('+e.id+')')+'"><img src="'+thumbSrc+'" style="max-width:80px;max-height:60px;border-radius:6px;border:1px solid var(--g200)" title="'+a.name+'"/></span>';
+      if(isDrive)return '<span onclick="window.open(\''+a.url+'\',\'_blank\')" style="font-size:10px;color:var(--p);padding:4px 8px;background:rgba(99,102,241,.06);border-radius:6px;cursor:pointer;border:1px solid rgba(99,102,241,.1)">📄 '+a.name+'</span>';
       return '<span onclick="previewAttachments('+e.id+')" style="font-size:10px;color:var(--p);padding:4px 8px;background:rgba(99,102,241,.06);border-radius:6px;cursor:pointer;border:1px solid rgba(99,102,241,.1)">📄 '+a.name+'</span>';
     }).join('')+'</div></div>':''}
+    <div style="margin-top:8px"><button class="btn btn-sm" style="background:rgba(99,102,241,.06);color:var(--p);border:1px solid rgba(99,102,241,.12);font-size:11px" onclick="addAttachmentToItem(${e.id})">📎 Thêm đính kèm 添加附件</button></div>
   </div>`;
 
   // Flow
@@ -3258,6 +3357,7 @@ function closePrintOverlay(){document.getElementById('printOverlay').classList.r
 const LS_KEY='loho_chiphi_data';
 // *** QUAN TRỌNG: Thay URL n��y bằng URL Web App sau khi deploy Google Apps Script v2 ***
 const GSHEET_API='https://script.google.com/macros/s/AKfycby1QVV0lxT8oFjIg994tGaIQz1soVzCuCg2kXGuLtla3_OBOFeOzpdOa08pwlg9OD7ZIA/exec';
+const DRIVE_API='https://script.google.com/macros/s/AKfycbz0mRoAIb7UjotziByHd_BrrPfaRhWkleAc51siCB2JbXs5iAnYnwdynQ8ZhXxihN2H7w/exec';
 // Polyfill AbortSignal.timeout cho trình duyệt cũ
 if(typeof AbortSignal!=='undefined'&&!AbortSignal.timeout){AbortSignal.timeout=function(ms){const c=new AbortController();setTimeout(()=>c.abort(new DOMException('TimeoutError','TimeoutError')),ms);return c.signal;};}
 let syncTimer=null;

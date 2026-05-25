@@ -1,7 +1,7 @@
-// Service Worker v14 — Auto-update mechanism
+// Service Worker v15 — Auto-update mechanism
 // File này chạy ở tầng TRƯỚC index.html, kiểm soát mọi request
 
-const CACHE_VERSION = 'loho-v14';
+const CACHE_VERSION = 'loho-v15';
 const VERSION_URL = 'version.json';
 const CRITICAL_FILES = ['index.html', 'app.js', 'version.json'];
 
