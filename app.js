@@ -1,5 +1,5 @@
 // ============ v12: AUTO-UPDATE — BẮT BUỘC DÙNG BẢN MỚI NHẤT ============
-const APP_VERSION=15;
+const APP_VERSION=16;
 const VERSION_CHECK_URL=location.origin+location.pathname.replace(/[^\/]*$/,'')+'version.json';
 const VERSION_CHECK_INTERVAL=5*60*1000; // 5 phút
 
@@ -367,19 +367,45 @@ function updateDriveLoading(msg,sub){
   const s=document.getElementById('driveLoadingSub');if(s&&sub)s.textContent=sub;
 }
 
+// v16: Nén ảnh trước khi upload — giảm kích thước 60-80%, tăng tốc upload
+function compressImage(file,maxW,quality){
+  maxW=maxW||1600;quality=quality||0.7;
+  return new Promise(function(resolve){
+    if(!file.type.startsWith('image/')||file.type==='image/gif'){
+      // Không nén GIF hoặc file không phải ảnh
+      const r=new FileReader();r.onload=function(){resolve({base64:r.result.split(',')[1],mimeType:file.type,name:file.name});};r.onerror=function(){resolve(null);};r.readAsDataURL(file);return;
+    }
+    var img=new Image();
+    img.onload=function(){
+      var w=img.width,h=img.height;
+      if(w>maxW){h=Math.round(h*maxW/w);w=maxW;}
+      var canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+      var ctx=canvas.getContext('2d');ctx.drawImage(img,0,0,w,h);
+      var outType=file.type==='image/png'?'image/png':'image/jpeg';
+      var dataUrl=canvas.toDataURL(outType,quality);
+      var b64=dataUrl.split(',')[1];
+      var origSize=file.size;var newSize=Math.round(b64.length*3/4);
+      console.log('[COMPRESS] '+file.name+': '+Math.round(origSize/1024)+'KB → '+Math.round(newSize/1024)+'KB ('+(100-Math.round(newSize/origSize*100))+'% giảm)');
+      resolve({base64:b64,mimeType:outType,name:file.name.replace(/\.\w+$/,outType==='image/png'?'.png':'.jpg')});
+    };
+    img.onerror=function(){
+      var r=new FileReader();r.onload=function(){resolve({base64:r.result.split(',')[1],mimeType:file.type,name:file.name});};r.onerror=function(){resolve(null);};r.readAsDataURL(file);
+    };
+    var ur=URL.createObjectURL(file);img.src=ur;
+  });
+}
 async function uploadFilesToDrive(itemId, fileInput){
   if(!fileInput||!fileInput.files||!fileInput.files.length)return [];
   const files=[];
-  for(const f of fileInput.files){
+  const totalFiles=fileInput.files.length;
+  for(let fi=0;fi<totalFiles;fi++){
+    const f=fileInput.files[fi];
     if(f.size>10*1024*1024){toast('File "'+f.name+'" quá lớn (>10MB), bỏ qua');continue;}
-    const base64=await new Promise(resolve=>{
-      const r=new FileReader();
-      r.onload=()=>resolve(r.result.split(',')[1]);
-      r.onerror=()=>resolve('');
-      r.readAsDataURL(f);
-    });
-    if(!base64)continue;
-    files.push({fileName:f.name,mimeType:f.type||'application/octet-stream',base64:base64});
+    updateDriveLoading('Đang xử lý file '+(fi+1)+'/'+totalFiles+'...','Nén ảnh '+f.name);
+    // v16: Nén ảnh trước khi gửi
+    const compressed=await compressImage(f);
+    if(!compressed)continue;
+    files.push({fileName:compressed.name,mimeType:compressed.mimeType,base64:compressed.base64});
   }
   if(!files.length)return [];
   try{
@@ -398,12 +424,15 @@ async function addAttachmentToItem(itemId){
   inp.accept='image/*,.pdf,.doc,.docx,.xls,.xlsx';
   inp.onchange=async function(){
     if(!inp.files||!inp.files.length)return;
-    showDriveLoading('Đang upload '+inp.files.length+' file lên Drive...');
+    showDriveLoading('Đang nén & upload '+inp.files.length+' file...');
+    updateDriveLoading('Đang nén & upload '+inp.files.length+' file...','Vui lòng đợi, không tắt trang');
     const uploaded=await uploadFilesToDrive(itemId,inp);
     hideDriveLoading();
     if(!uploaded.length){toast('Upload không thành công');return;}
     if(!e.attachments)e.attachments=[];
     uploaded.forEach(f=>e.attachments.push(f));
+    // v16: Lưu localStorage NGAY để không mất attachment khi loadFromSheets chưa kịp sync
+    try{const sj=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});localStorage.setItem(LS_KEY,sj);}catch(se){}
     toast('✅ Đã thêm '+uploaded.length+' file đính kèm');
     syncImmediate('add-attachment','item '+itemId+' +'+uploaded.length+' files');
     // Refresh popup nếu đang mở
@@ -413,28 +442,32 @@ async function addAttachmentToItem(itemId){
   inp.click();
 }
 async function generateBatchPDF(month){
-  const sel=getSel(month);
-  if(!sel.length){toast('Chọn ít nhất 1 hạng mục');return;}
-  const pdfItems=sel.map(e=>{
-    const staffObj=STAFF.find(s=>s.code===e.staffCode);
-    return {id:e.id,code:e.code||'',date:e.date||'',note:e.note||'',noteCn:e.noteCn||'',
-      amount:e.amount||0,method:e.method||'',payer:e.payer||'',
-      staffName:staffObj?staffObj.name:'',vat:e.vat||'',vatNum:e.vatNum||'',
-      attachments:(e.attachments||[]).map(a=>({name:a.name,fileId:a.fileId||'',mimeType:a.mimeType||'',url:a.url||''}))};
-  });
-  showDriveLoading('Đang tạo PDF phiếu chi...');
-  updateDriveLoading('Đang tạo PDF phiếu chi...','Gồm '+pdfItems.length+' hạng mục — vui lòng đợi 10-30 giây');
   try{
+    const sel=getSel(month);
+    if(!sel.length){
+      // v16: Alert rõ ràng thay vì toast nhỏ
+      alert('⚠️ Vui lòng chọn (✓) ít nhất 1 hạng mục trước khi tạo PDF');
+      return;
+    }
+    const pdfItems=sel.map(e=>{
+      const staffObj=STAFF.find(s=>s.code===e.staffCode);
+      return {id:e.id,code:e.code||'',date:e.date||'',note:e.note||'',noteCn:e.noteCn||'',
+        amount:e.amount||0,method:e.method||'',payer:e.payer||'',
+        staffName:staffObj?staffObj.name:'',vat:e.vat||'',vatNum:e.vatNum||'',
+        attachments:(e.attachments||[]).map(a=>({name:a.name,fileId:a.fileId||'',mimeType:a.mimeType||'',url:a.url||''}))};
+    });
+    showDriveLoading('Đang tạo PDF phiếu chi...');
+    updateDriveLoading('Đang tạo PDF phiếu chi...','Gồm '+pdfItems.length+' hạng mục — vui lòng đợi 10-30 giây');
     const resp=await fetch(DRIVE_API,{method:'POST',headers:{'Content-Type':'text/plain'},
       body:JSON.stringify({action:'generatePDF',items:pdfItems})});
     const r=await resp.json();
     hideDriveLoading();
-    if(!r.ok){toast('Tạo PDF lỗi: '+(r.error||''));return;}
+    if(!r.ok){alert('❌ Tạo PDF lỗi: '+(r.error||'Không rõ lỗi'));return;}
     // Hiển thị popup kết quả với link PDF
     showPDFResult(r.pdfUrl,r.downloadUrl,pdfItems.length);
   }catch(err){
     hideDriveLoading();
-    toast('Lỗi tạo PDF: '+err.message);
+    alert('❌ Lỗi tạo PDF: '+err.message+'\n\nVui lòng kiểm tra kết nối mạng và thử lại.');
   }
 }
 function showPDFResult(viewUrl,downloadUrl,count){
@@ -3389,21 +3422,16 @@ return '<div class="pv-page">'+
 }
 function buildAttachmentPrintHTML(e){
   if(!e.attachments||!e.attachments.length)return '';
-  let h='<div style="page-break-before:always;padding:20px;font-family:sans-serif">';
-  h+='<h3 style="text-align:center;margin-bottom:12px">📎 File đính kèm — '+(e.code||'')+'</h3>';
-  h+='<p style="text-align:center;font-size:12px;color:#64748b;margin-bottom:16px">'+e.note+' | '+fmtV(e.amount)+'</p>';
-  e.attachments.forEach(function(a,i){
+  // v16: Chỉ hiển thị hình ảnh đính kèm trực tiếp sau phiếu chi, KHÔNG có trang header riêng
+  let h='';
+  e.attachments.forEach(function(a){
     const isDrive=a.fileId||false;
     const isImg=isDrive?(a.mimeType&&a.mimeType.startsWith('image/')):(a.url&&(a.url.startsWith('data:image')||(a.type&&a.type.startsWith('image/'))));
     if(isImg){
       const imgSrc=isDrive?('https://drive.google.com/thumbnail?id='+a.fileId+'&sz=w800'):a.url;
-      h+='<div style="margin-bottom:16px;text-align:center"><p style="font-size:11px;color:#64748b;margin-bottom:4px">'+(i+1)+'. '+a.name+'</p><img src="'+imgSrc+'" style="max-width:90%;max-height:500px;border:1px solid #e2e8f0;border-radius:8px"/></div>';
-    }else{
-      const link=isDrive?a.url:'';
-      h+='<div style="margin-bottom:8px;padding:8px 12px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0"><span style="font-size:12px">📄 '+(i+1)+'. '+a.name+'</span>'+(link?' — <a href="'+link+'" target="_blank" style="font-size:11px;color:#6366f1">Mở trên Drive</a>':'')+'</div>';
+      h+='<div style="page-break-before:always;padding:10px;text-align:center;display:flex;align-items:center;justify-content:center;min-height:95vh"><img src="'+imgSrc+'" style="max-width:95%;max-height:90vh;border:1px solid #e2e8f0"/></div>';
     }
   });
-  h+='</div>';
   return h;
 }
 function printItem(id){
@@ -3776,6 +3804,17 @@ function mergeItems(localItems, remoteItems, preferLocal){
       }
       // Cùng status + pull mode → giữ remote (Sheets = truth)
       // Remote status cao hơn → giữ remote
+      // v16: LUÔN merge attachments — tránh mất file đính kèm khi remote chưa cập nhật
+      const winner=resultMap.get(le.id);
+      const loser=(winner===le)?re:le;
+      if(loser.attachments&&loser.attachments.length){
+        if(!winner.attachments)winner.attachments=[];
+        const existIds=new Set(winner.attachments.map(a=>a.fileId||a.name));
+        loser.attachments.forEach(a=>{
+          const key=a.fileId||a.name;
+          if(!existIds.has(key)){winner.attachments.push(a);existIds.add(key);}
+        });
+      }
     }
   });
   return Array.from(resultMap.values());
