@@ -1,7 +1,20 @@
-// ============ v12: AUTO-UPDATE — BẮT BUỘC DÙNG BẢN MỚI NHẤT ============
-const APP_VERSION=16;
+// ============ v17: AUTO-UPDATE — TỰ ĐỘNG CẬP NHẬT TẤT CẢ MÁY ============
+const APP_VERSION=17;
 const VERSION_CHECK_URL=location.origin+location.pathname.replace(/[^\/]*$/,'')+'version.json';
-const VERSION_CHECK_INTERVAL=5*60*1000; // 5 phút
+
+// Báo version hiện tại cho Service Worker
+if('serviceWorker' in navigator && navigator.serviceWorker.controller){
+  navigator.serviceWorker.controller.postMessage({type:'REPORT_VERSION',version:APP_VERSION});
+}
+
+// Nghe message từ SW (version mới được phát hiện)
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.addEventListener('message',function(ev){
+    if(ev.data&&ev.data.type==='VERSION_INFO'&&ev.data.version>APP_VERSION){
+      _triggerAutoReload(ev.data.version);
+    }
+  });
+}
 
 // Kiểm tra version mới từ GitHub Pages (với anti-loop guard)
 let _updateChecking=false;
@@ -13,26 +26,7 @@ async function checkForUpdate(){
     if(!res.ok){_updateChecking=false;return false;}
     const ver=await res.json();
     if(ver.version&&ver.version>APP_VERSION){
-      // Anti-loop: chỉ reload 1 lần mỗi 60s
-      const lastReload=parseInt(sessionStorage.getItem('app_reload_at')||'0');
-      if(Date.now()-lastReload<60000){
-        console.warn('[UPDATE] Skipped reload — đã reload gần đây');
-        _updateChecking=false;
-        return false;
-      }
-      console.log('[UPDATE] Phiên bản mới:',ver.version,'(hiện tại:',APP_VERSION+')');
-      const overlay=document.createElement('div');
-      overlay.id='forceUpdateOverlay';
-      overlay.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);z-index:99999;display:flex;align-items:center;justify-content:center;';
-      overlay.innerHTML='<div style="background:#fff;border-radius:16px;padding:32px 28px;max-width:380px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)">'
-        +'<div style="font-size:48px;margin-bottom:12px">🔄</div>'
-        +'<h2 style="margin:0 0 8px;font-size:18px;color:#1e293b">Có bản cập nhật mới</h2>'
-        +'<p style="margin:0 0 16px;font-size:13px;color:#64748b">Phiên bản '+ver.version+' đã sẵn sàng.<br>Hệ thống sẽ tự động cập nhật.</p>'
-        +'<div style="font-size:12px;color:#94a3b8">Đang tải bản mới...</div>'
-        +'</div>';
-      if(document.body)document.body.appendChild(overlay);
-      sessionStorage.setItem('app_reload_at',String(Date.now()));
-      setTimeout(function(){location.reload(true);},1500);
+      _triggerAutoReload(ver.version);
       _updateChecking=false;
       return true;
     }
@@ -43,9 +37,46 @@ async function checkForUpdate(){
   return false;
 }
 
-// Kiểm tra sau 3s (đợi DOM ready) + lặp lại mỗi 2 phút
+// Hàm tự động reload — hiện overlay rồi reload
+function _triggerAutoReload(newVersion){
+  // Anti-loop: chỉ reload 1 lần mỗi 60s
+  const lastReload=parseInt(sessionStorage.getItem('app_reload_at')||'0');
+  if(Date.now()-lastReload<60000){
+    console.warn('[UPDATE] Skipped reload — đã reload gần đây');
+    return;
+  }
+  console.log('[UPDATE] Phiên bản mới:',newVersion,'(hiện tại:',APP_VERSION+')');
+
+  // Hiện overlay thông báo
+  if(document.body&&!document.getElementById('forceUpdateOverlay')){
+    const overlay=document.createElement('div');
+    overlay.id='forceUpdateOverlay';
+    overlay.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML='<div style="background:#fff;border-radius:16px;padding:32px 28px;max-width:380px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)">'
+      +'<div style="font-size:48px;margin-bottom:12px">🔄</div>'
+      +'<h2 style="margin:0 0 8px;font-size:18px;color:#1e293b">Có bản cập nhật mới</h2>'
+      +'<p style="margin:0 0 16px;font-size:13px;color:#64748b">Phiên bản '+newVersion+' đã sẵn sàng.<br>Hệ thống sẽ tự động cập nhật.</p>'
+      +'<div style="font-size:12px;color:#94a3b8">Đang tải bản mới...</div>'
+      +'</div>';
+    document.body.appendChild(overlay);
+  }
+
+  // Xóa cache SW + reload
+  sessionStorage.setItem('app_reload_at',String(Date.now()));
+  if('caches' in window){
+    caches.keys().then(function(keys){
+      return Promise.all(keys.map(function(k){return caches.delete(k);}));
+    }).then(function(){
+      location.reload(true);
+    });
+  }else{
+    setTimeout(function(){location.reload(true);},1000);
+  }
+}
+
+// Kiểm tra sau 3s (đợi DOM ready) + lặp lại mỗi 1 phút
 setTimeout(function(){checkForUpdate();},3000);
-setInterval(function(){checkForUpdate();},2*60*1000);
+setInterval(function(){checkForUpdate();},60*1000);
 
 // v12: Khi version thay đổi hoặc chưa từng set → xóa data cache cũ, force pull 100% từ Sheets
 (function(){
