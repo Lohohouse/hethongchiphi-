@@ -472,6 +472,22 @@ async function addAttachmentToItem(itemId){
   };
   inp.click();
 }
+function removeAttachment(itemId, attIndex){
+  const e=items.find(x=>x.id===itemId);
+  if(!e||!e.attachments||!e.attachments[attIndex])return;
+  const att=e.attachments[attIndex];
+  if(!confirm('Xóa file "'+att.name+'" ?\n刪除附件 "'+att.name+'" ?'))return;
+  // Xóa file trên Drive (nếu có fileId)
+  if(att.fileId&&typeof DRIVE_API!=='undefined'&&DRIVE_API){
+    fetch(DRIVE_API,{method:'POST',body:JSON.stringify({action:'deleteFile',fileId:att.fileId}),headers:{'Content-Type':'text/plain'}}).catch(function(){});
+  }
+  e.attachments.splice(attIndex,1);
+  try{const sj=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});localStorage.setItem(LS_KEY,sj);}catch(se){}
+  toast('🗑️ Đã xóa file đính kèm');
+  syncImmediate('remove-attachment','item '+itemId+' removed '+att.name);
+  if(document.getElementById('approveModal').classList.contains('show'))openApproval(itemId);
+  rerender();
+}
 async function generateBatchPDF(month){
   try{
     const sel=getSel(month);
@@ -1989,13 +2005,14 @@ function openApproval(id){
     ${e.remark?'<div style="margin-top:4px;color:var(--pp)"><b>📝 Ghi chú:</b> '+e.remark+'</div>':''}
     ${e.attachments&&e.attachments.length?'<div style="margin-top:8px"><b>Đính kèm:</b><div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:6px">'+e.attachments.map((a,ai)=>{
       const isBlob=a.url&&a.url.startsWith('blob:');
-      if(isBlob)return '<span style="font-size:10px;color:var(--g400);padding:4px 8px;background:var(--g100);border-radius:6px" title="File đã hết hạn - cần upload lại">⚠️ '+a.name+' (hết hạn)</span>';
+      const delBtn='<span onclick="event.stopPropagation();removeAttachment('+e.id+','+ai+')" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;background:#ef4444;color:#fff;border-radius:50%;font-size:11px;line-height:18px;text-align:center;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.3)" title="Xóa 刪除">✕</span>';
+      if(isBlob)return '<span style="position:relative;font-size:10px;color:var(--g400);padding:4px 8px;background:var(--g100);border-radius:6px" title="File đã hết hạn - cần upload lại">⚠️ '+a.name+' (hết hạn)'+delBtn+'</span>';
       const isDrive=a.fileId||((a.url||'').indexOf('drive.google.com')!==-1);
       const isImg=isDrive?(a.mimeType&&a.mimeType.startsWith('image/')):a.url&&(a.url.startsWith('data:image')||(a.type&&a.type.startsWith('image/')));
       const thumbSrc=isDrive&&isImg?(a.directUrl||'https://drive.google.com/thumbnail?id='+a.fileId+'&sz=w200'):a.url;
-      if(isImg&&thumbSrc)return '<span style="display:inline-block;cursor:pointer" onclick="'+(isDrive?'window.open(\''+a.url+'\',\'_blank\')':'previewAttachments('+e.id+')')+'"><img src="'+thumbSrc+'" style="max-width:80px;max-height:60px;border-radius:6px;border:1px solid var(--g200)" title="'+a.name+'"/></span>';
-      if(isDrive)return '<span onclick="window.open(\''+a.url+'\',\'_blank\')" style="font-size:10px;color:var(--p);padding:4px 8px;background:rgba(99,102,241,.06);border-radius:6px;cursor:pointer;border:1px solid rgba(99,102,241,.1)">📄 '+a.name+'</span>';
-      return '<span onclick="previewAttachments('+e.id+')" style="font-size:10px;color:var(--p);padding:4px 8px;background:rgba(99,102,241,.06);border-radius:6px;cursor:pointer;border:1px solid rgba(99,102,241,.1)">📄 '+a.name+'</span>';
+      if(isImg&&thumbSrc)return '<span style="position:relative;display:inline-block;cursor:pointer" onclick="'+(isDrive?'window.open(\''+a.url+'\',\'_blank\')':'previewAttachments('+e.id+')')+'"><img src="'+thumbSrc+'" style="max-width:80px;max-height:60px;border-radius:6px;border:1px solid var(--g200)" title="'+a.name+'"/>'+delBtn+'</span>';
+      if(isDrive)return '<span style="position:relative;display:inline-block" onclick="window.open(\''+a.url+'\',\'_blank\')" style="font-size:10px;color:var(--p);padding:4px 8px;background:rgba(99,102,241,.06);border-radius:6px;cursor:pointer;border:1px solid rgba(99,102,241,.1)">📄 '+a.name+delBtn+'</span>';
+      return '<span style="position:relative;display:inline-block" onclick="previewAttachments('+e.id+')" style="font-size:10px;color:var(--p);padding:4px 8px;background:rgba(99,102,241,.06);border-radius:6px;cursor:pointer;border:1px solid rgba(99,102,241,.1)">📄 '+a.name+delBtn+'</span>';
     }).join('')+'</div></div>':''}
     <div style="margin-top:8px"><button class="btn btn-sm" style="background:rgba(99,102,241,.06);color:var(--p);border:1px solid rgba(99,102,241,.12);font-size:11px" onclick="addAttachmentToItem(${e.id})">📎 Thêm đính kèm 添加附件</button></div>
   </div>`;
