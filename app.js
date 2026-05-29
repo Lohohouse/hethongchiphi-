@@ -2693,6 +2693,26 @@ function getPendingStatuses(){
   return [];
 }
 
+// ============ TOGGLE PAY METHOD (TM ↔ CK) — cho phép đổi sau khi nộp duyệt ============
+function togglePayMethod(id){
+  const e=items.find(x=>x.id===id);if(!e)return;
+  if(e.locked){toast('Đơn đã khóa 🔐 — không thể đổi PT');return;}
+  if(e.status==='paid'){toast('Đơn đã chi tiền — không thể đổi PT');return;}
+  if(!isMgr()&&!isBoss()&&!isAccountant()){toast('Không có quyền đổi phương thức');return;}
+  const oldMethod=e.method||'Tiền mặt';
+  e.method=oldMethod==='Tiền mặt'?'Chuyển khoản':'Tiền mặt';
+  const td=new Date().toISOString().slice(0,10);
+  // Re-route status nếu đã qua Boss duyệt
+  if(['boss_approved','cashier_review'].includes(e.status)){
+    if(e.method==='Tiền mặt'){e.status='cashier_review';}
+    else{e.status='boss_approved';}
+  }
+  e.paymentHistory=(e.paymentHistory||[]);
+  e.paymentHistory.push({action:'method_changed',by:currentUser?currentUser.name:'',date:td,note:'Đổi PT: '+oldMethod+' → '+e.method});
+  saveData();syncImmediate('đổi-PT',e.code);rerender();
+  toast('Đổi PT → '+(e.method==='Tiền mặt'?'Tiền mặt':'Chuyển khoản')+' ✓');
+}
+
 // ============ LOCK/UNLOCK ============
 function lockItem(id){
   const e=items.find(x=>x.id===id);if(!e)return;
@@ -2793,7 +2813,7 @@ function renderM(m){
       '<td><span style="font-size:10px">'+e.type+'</span><br><span style="font-size:9px;color:var(--g400)">'+(e.typeCn||'')+'</span></td>'+
       '<td style="font-size:10px;max-width:200px;white-space:normal;word-break:break-word">'+(e.note||'')+prepaidTag+qAdvTag+'</td>'+
       '<td class="amt">'+fmtV(e.amount)+'</td>'+
-      '<td style="font-size:9px"><span style="padding:1px 5px;border-radius:4px;background:'+(e.method==='Tiền mặt'?'rgba(217,119,6,.06)':'rgba(37,99,235,.08)')+';color:'+(e.method==='Tiền mặt'?'#b45309':'#2563eb')+'">'+(e.method==='Tiền mặt'?'TM':'CK')+'</span></td>'+
+      '<td style="font-size:9px"><span style="padding:1px 5px;border-radius:4px;cursor:'+(e.status!=='paid'&&!e.locked&&(isMgr()||isBoss()||isAccountant())?'pointer':'default')+';background:'+(e.method==='Tiền mặt'?'rgba(217,119,6,.06)':'rgba(37,99,235,.08)')+';color:'+(e.method==='Tiền mặt'?'#b45309':'#2563eb')+'"'+(e.status!=='paid'&&!e.locked&&(isMgr()||isBoss()||isAccountant())?' title="Click để đổi PT 點擊切換" onclick="event.stopPropagation();togglePayMethod('+e.id+')"':'')+'">'+(e.method==='Tiền mặt'?'TM':'CK')+'</span></td>'+
       '<td style="font-size:10px">'+(staff?staff.name:e.staffCode)+'</td>'+
       '<td style="text-align:center">'+(e.attachments&&e.attachments.length?'<span style="font-size:11px;cursor:pointer" title="'+e.attachments.length+' file đính kèm 附件" onclick="event.stopPropagation();previewAttachments('+e.id+')">📎<span style="font-size:8px;color:var(--p);font-weight:700">'+e.attachments.length+'</span></span>':'')+'<button class="bi" title="Thêm đính kèm 添加附件" onclick="event.stopPropagation();addAttachmentToItem('+e.id+')" style="font-size:10px;color:var(--p);opacity:.6">➕</button></td>'+
       '<td><span class="st '+st.c+'" onclick="event.stopPropagation();openApproval('+e.id+')">'+st.l+'</span></td>'+
@@ -2819,7 +2839,7 @@ function renderM(m){
       '<td><span style="font-size:10px">'+e.type+'</span><br><span style="font-size:9px;color:var(--g400)">'+(e.typeCn||'')+'</span></td>'+
       '<td style="font-size:10px;max-width:200px;white-space:normal;word-break:break-word">'+(e.note||'')+prepaidTag+qAdvTag+'</td>'+
       '<td class="amt">'+fmtV(e.amount)+'</td>'+
-      '<td style="font-size:9px"><span style="padding:1px 5px;border-radius:4px;background:'+(e.method==='Tiền mặt'?'rgba(217,119,6,.06)':'rgba(37,99,235,.08)')+';color:'+(e.method==='Tiền mặt'?'#b45309':'#2563eb')+'">'+(e.method==='Tiền mặt'?'TM':'CK')+'</span></td>'+
+      '<td style="font-size:9px"><span style="padding:1px 5px;border-radius:4px;cursor:'+(e.status!=='paid'&&!e.locked&&(isMgr()||isBoss()||isAccountant())?'pointer':'default')+';background:'+(e.method==='Tiền mặt'?'rgba(217,119,6,.06)':'rgba(37,99,235,.08)')+';color:'+(e.method==='Tiền mặt'?'#b45309':'#2563eb')+'"'+(e.status!=='paid'&&!e.locked&&(isMgr()||isBoss()||isAccountant())?' title="Click để đổi PT 點擊切換" onclick="event.stopPropagation();togglePayMethod('+e.id+')"':'')+'">'+(e.method==='Tiền mặt'?'TM':'CK')+'</span></td>'+
       '<td style="font-size:10px">'+(staff?staff.name:e.staffCode)+'</td>'+
       '<td style="text-align:center">'+(e.attachments&&e.attachments.length?'<span style="font-size:11px;cursor:pointer" title="'+e.attachments.length+' file đính kèm 附件" onclick="event.stopPropagation();previewAttachments('+e.id+')">📎<span style="font-size:8px;color:var(--p);font-weight:700">'+e.attachments.length+'</span></span>':'')+'</td>'+
       '<td><span class="st '+st.c+'">'+st.l+'</span></td>'+
