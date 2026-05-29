@@ -1,5 +1,5 @@
 // ============ v17: AUTO-UPDATE — TỰ ĐỘNG CẬP NHẬT TẤT CẢ MÁY ============
-const APP_VERSION=17;
+const APP_VERSION=18;
 const VERSION_CHECK_URL=location.origin+location.pathname.replace(/[^\/]*$/,'')+'version.json';
 
 // Báo version hiện tại cho Service Worker
@@ -175,7 +175,13 @@ loadDeletedIds();
 let _deletedAdvIds=new Set();
 function loadDeletedAdvIds(){try{const s=localStorage.getItem('loho_deletedAdvIds');if(s)_deletedAdvIds=new Set(JSON.parse(s));}catch(e){}}
 function saveDeletedAdvIds(){try{localStorage.setItem('loho_deletedAdvIds',JSON.stringify([..._deletedAdvIds]));}catch(e){}}
+
+// v18: Track deleted attachment fileIds — tránh merge lại attachment đã xóa
+let _deletedAttFileIds=new Set();
+function loadDeletedAttFileIds(){try{const s=localStorage.getItem('loho_deletedAttFileIds');if(s)_deletedAttFileIds=new Set(JSON.parse(s));}catch(e){}}
+function saveDeletedAttFileIds(){try{localStorage.setItem('loho_deletedAttFileIds',JSON.stringify([..._deletedAttFileIds]));}catch(e){}}
 loadDeletedAdvIds();
+loadDeletedAttFileIds();
 
 // ============ AUTH & ROLE SYSTEM ============
 function togglePwVis(){const p=document.getElementById('loginPass');const b=document.getElementById('pwToggleBtn');if(p.type==='password'){p.type='text';b.textContent='🙈';}else{p.type='password';b.textContent='👁';}}
@@ -477,6 +483,11 @@ function removeAttachment(itemId, attIndex){
   if(!e||!e.attachments||!e.attachments[attIndex])return;
   const att=e.attachments[attIndex];
   if(!confirm('Xóa file "'+att.name+'" ?\n刪除附件 "'+att.name+'" ?'))return;
+  // v18: Track fileId đã xóa — tránh merge lại từ remote
+  if(att.fileId){
+    _deletedAttFileIds.add(att.fileId);
+    saveDeletedAttFileIds();
+  }
   // Xóa file trên Drive (nếu có fileId)
   if(att.fileId&&typeof DRIVE_API!=='undefined'&&DRIVE_API){
     fetch(DRIVE_API,{method:'POST',body:JSON.stringify({action:'deleteFile',fileId:att.fileId}),headers:{'Content-Type':'text/plain'}}).catch(function(){});
@@ -3539,7 +3550,7 @@ function syncImmediate(actionType,detail){
   _lastSyncDetail=detail||'';
   clearTimeout(syncTimer);
   markUnsynced();
-  const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
+  const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],deletedAttFileIds:[..._deletedAttFileIds],savedAt:new Date().toISOString()};
   if(isSyncing){
     _pendingSyncData=data;
     console.log('[SYNC] Queued immediate: đang sync, sẽ sync lại ngay sau');
@@ -3566,7 +3577,7 @@ document.addEventListener('visibilitychange',function(){
     console.log('[SYNC] Tab hidden — triggering immediate sync');
     clearTimeout(syncTimer);
     if(!isSyncing&&!_isLoading){
-      const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
+      const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],deletedAttFileIds:[..._deletedAttFileIds],savedAt:new Date().toISOString()};
       syncToSheets(data);
     }
   }
@@ -3604,7 +3615,7 @@ window.addEventListener('load',function(){
           console.log('[SYNC] Recovery sync starting (waited '+waited+'ms, sheetsLoaded='+_sheetsLoaded+')');
           _lastSyncAction='recovery-sync';
           _lastSyncDetail='Auto recovery từ session trước';
-          const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
+          const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],deletedAttFileIds:[..._deletedAttFileIds],savedAt:new Date().toISOString()};
           syncToSheets(data);
         }else{
           console.log('[SYNC] Recovery sync skipped — sync/load still running');
@@ -3620,7 +3631,7 @@ setInterval(function(){
     console.log('[SYNC] Periodic check: found unsynced data — retrying...');
     _lastSyncAction='periodic-retry';
     _syncRetryCount=0;
-    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
+    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],deletedAttFileIds:[..._deletedAttFileIds],savedAt:new Date().toISOString()};
     syncToSheets(data);
   }
 },30000);
@@ -3647,7 +3658,7 @@ function forceSync(){
   if(_isLoading){console.warn('[SYNC] forceSync skipped — loadFromSheets đang chạy');return;}
   _syncRetryCount=0;
   isSyncing=false; // Reset mutex để cho phép sync lại
-  const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
+  const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],deletedAttFileIds:[..._deletedAttFileIds],savedAt:new Date().toISOString()};
   syncToSheets(data);
 }
 
@@ -3659,7 +3670,7 @@ function saveData(actionType,detail){
     const _now=new Date().toISOString();
     // v13: CHỈ cleanup UI state, KHÔNG đổi updatedAt toàn bộ (gây merge sai)
     items.forEach(e=>{delete e._selCtx;e.selected=false;});
-    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:_now};
+    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],deletedAttFileIds:[..._deletedAttFileIds],savedAt:_now};
     const json=JSON.stringify(data);
     try{localStorage.setItem(LS_KEY,json);}catch(storageErr){
       console.error('localStorage full:',storageErr);
@@ -3852,7 +3863,7 @@ function mergeItems(localItems, remoteItems, preferLocal){
       }
       // Cùng status + pull mode → giữ remote (Sheets = truth)
       // Remote status cao hơn → giữ remote
-      // v16: LUÔN merge attachments — tránh mất file đính kèm khi remote chưa cập nhật
+      // v18: Merge attachments — nhưng BỎ QUA attachment đã bị xóa
       const winner=resultMap.get(le.id);
       const loser=(winner===le)?re:le;
       if(loser.attachments&&loser.attachments.length){
@@ -3860,8 +3871,14 @@ function mergeItems(localItems, remoteItems, preferLocal){
         const existIds=new Set(winner.attachments.map(a=>a.fileId||a.name));
         loser.attachments.forEach(a=>{
           const key=a.fileId||a.name;
+          // v18: Skip attachment đã bị xóa
+          if(a.fileId&&_deletedAttFileIds.has(a.fileId))return;
           if(!existIds.has(key)){winner.attachments.push(a);existIds.add(key);}
         });
+      }
+      // v18: Cũng lọc winner's attachments — phòng trường hợp remote đã merge lại
+      if(winner.attachments){
+        winner.attachments=winner.attachments.filter(a=>!a.fileId||!_deletedAttFileIds.has(a.fileId));
       }
     }
   });
@@ -3913,6 +3930,7 @@ async function syncToSheets(data){
         // v6: Merge deletedIds + cashBatches từ remote
         if(lr.deletedIds&&Array.isArray(lr.deletedIds))lr.deletedIds.forEach(id=>_deletedIds.add(id));
         if(lr.deletedAdvIds&&Array.isArray(lr.deletedAdvIds))lr.deletedAdvIds.forEach(id=>{_deletedAdvIds.add(id);});saveDeletedAdvIds();
+        if(lr.deletedAttFileIds&&Array.isArray(lr.deletedAttFileIds))lr.deletedAttFileIds.forEach(id=>{_deletedAttFileIds.add(id);});saveDeletedAttFileIds();
         remoteCashBatches=lr.cashBatches||[];
         remoteCashBatchNextId=lr.cashBatchNextId||1;
         preLoadOk=true;
@@ -4015,7 +4033,7 @@ async function syncToSheets(data){
     // Bước 5: POST merged data lên Sheets
     // v13: POST cashBatches ĐÃ MERGE (không phải currentData snapshot cũ)
     const merged={items:mergedItems,budgets:mergedBudgets,nextId:mergedNextId,advances:mergedAdvances,advNextId:mergedAdvNextId,
-      cashBatches:cashBatches,cashBatchNextId:cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],savedAt:new Date().toISOString()};
+      cashBatches:cashBatches,cashBatchNextId:cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],deletedAttFileIds:[..._deletedAttFileIds],savedAt:new Date().toISOString()};
     // v11: Thêm metadata để server/debug biết version + content fingerprint
     merged._version=APP_VERSION;
     merged._maxItemId=mergedMaxId;
@@ -4154,6 +4172,22 @@ async function loadFromSheets(){
         const beforeAdvFilter=advances.length;
         advances=advances.filter(a=>!_deletedAdvIds.has(a.id));
         if(advances.length<beforeAdvFilter)console.log('[LOAD] Filtered',beforeAdvFilter-advances.length,'deleted advances');
+      }
+
+      // v18: Merge deletedAttFileIds từ remote — lọc attachment đã xóa
+      if(r.deletedAttFileIds&&Array.isArray(r.deletedAttFileIds)){
+        r.deletedAttFileIds.forEach(id=>_deletedAttFileIds.add(id));
+        saveDeletedAttFileIds();
+        // Lọc attachments đã xóa khỏi tất cả items
+        let attFiltered=0;
+        items.forEach(e=>{
+          if(e.attachments&&e.attachments.length){
+            const before=e.attachments.length;
+            e.attachments=e.attachments.filter(a=>!a.fileId||!_deletedAttFileIds.has(a.fileId));
+            attFiltered+=(before-e.attachments.length);
+          }
+        });
+        if(attFiltered)console.log('[LOAD] Filtered',attFiltered,'deleted attachments');
       }
 
       // v13: Merge cashBatches từ remote — remote là truth

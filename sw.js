@@ -1,7 +1,7 @@
-// Service Worker v17 — Aggressive auto-update: tự động reload TẤT CẢ tab khi có version mới
+// Service Worker v18 — Fix attachment delete sync + force data refresh
 // File này chạy ở tầng TRƯỚC index.html, kiểm soát mọi request
 
-var CACHE_VERSION = 'loho-v17';
+var CACHE_VERSION = 'loho-v18';
 var VERSION_URL = 'version.json';
 var CRITICAL_FILES = ['index.html', 'app.js', 'version.json', 'sw.js'];
 var CHECK_INTERVAL = 60 * 1000; // Kiểm tra mỗi 60 giây

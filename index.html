@@ -4,30 +4,29 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>支付費用明細表 - LOHO HOUSE v2.0</title>
-<!-- v13: Service Worker — robust auto-update (không cần F12) -->
+<!-- v18: Fix xóa attachment sync + ép đồng bộ dữ liệu tất cả máy -->
 <script>
 if('serviceWorker' in navigator){
-  // updateViaCache:'none' → browser LUÔN fetch sw.js từ network, không dùng HTTP cache
+  // updateViaCache:'none' → browser LUÔN fetch sw.js từ network
   navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(function(reg){
-    // Khi có SW mới, bắt nó activate ngay
+    // Khi có SW mới → bắt activate ngay
     reg.addEventListener('updatefound',function(){
       var nw=reg.installing;
       if(!nw)return;
       nw.addEventListener('statechange',function(){
         if(nw.state==='installed'&&navigator.serviceWorker.controller){
-          // Gửi lệnh skipWaiting để SW mới chiếm quyền ngay
           nw.postMessage('SKIP_WAITING');
-          console.log('[SW] New version installed, sending SKIP_WAITING');
+          console.log('[SW] New SW installed, sending SKIP_WAITING');
         }
       });
     });
-    // Kiểm tra update ngay khi load + mỗi 2 phút
+    // Kiểm tra SW update mỗi 1 phút (browser sẽ fetch sw.js mới nếu có)
     reg.update();
-    setInterval(function(){reg.update();},2*60*1000);
-    console.log('[SW] Registered');
+    setInterval(function(){reg.update();},60*1000);
+    console.log('[SW] Registered v18');
   }).catch(function(e){console.warn('[SW] Registration failed:',e);});
 
-  // Khi SW mới chiếm quyền → tự reload trang (với anti-loop)
+  // Khi SW mới chiếm quyền → xóa cache + reload
   var _swRefreshing=false;
   navigator.serviceWorker.addEventListener('controllerchange',function(){
     if(_swRefreshing)return;
@@ -35,30 +34,21 @@ if('serviceWorker' in navigator){
     var lastReload=parseInt(sessionStorage.getItem('sw_reload_at')||'0');
     if(Date.now()-lastReload>30000){
       sessionStorage.setItem('sw_reload_at',String(Date.now()));
-      console.log('[SW] Controller changed — reloading for new version');
-      location.reload(true);
+      console.log('[SW] Controller changed — clearing cache + reload');
+      caches.keys().then(function(keys){
+        return Promise.all(keys.map(function(k){return caches.delete(k);}));
+      }).then(function(){
+        location.reload(true);
+      });
     }
   });
 
-  // Fallback: fetch version.json trực tiếp để phát hiện update
-  navigator.serviceWorker.addEventListener('message',function(ev){
-    if(ev.data&&ev.data.type==='VERSION_INFO'){
-      if(typeof APP_VERSION!=='undefined'&&ev.data.version>APP_VERSION){
-        var lastReload=parseInt(sessionStorage.getItem('sw_reload_at')||'0');
-        if(Date.now()-lastReload>30000){
-          sessionStorage.setItem('sw_reload_at',String(Date.now()));
-          location.reload(true);
-        }
-      }
-    }
-  });
-
-  // Force unregister SW cũ nếu phát hiện version cũ sau 10s
+  // Force unregister SW cũ nếu version lỗi thời (fallback sau 8s)
   setTimeout(function(){
     if(typeof APP_VERSION!=='undefined'){
       fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(v){
         if(v.version&&v.version>APP_VERSION){
-          console.log('[SW] Outdated version detected: local='+APP_VERSION+' remote='+v.version+' — force unregister');
+          console.log('[SW] Outdated: local='+APP_VERSION+' remote='+v.version+' — force unregister + reload');
           navigator.serviceWorker.getRegistrations().then(function(regs){
             regs.forEach(function(r){r.unregister();});
             caches.keys().then(function(keys){
@@ -74,7 +64,7 @@ if('serviceWorker' in navigator){
         }
       }).catch(function(){});
     }
-  },10000);
+  },8000);
 }
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
