@@ -1,5 +1,5 @@
 // ============ v17: AUTO-UPDATE — TỰ ĐỘNG CẬP NHẬT TẤT CẢ MÁY ============
-const APP_VERSION=18;
+const APP_VERSION=19;
 const VERSION_CHECK_URL=location.origin+location.pathname.replace(/[^\/]*$/,'')+'version.json';
 
 // Báo version hiện tại cho Service Worker
@@ -3688,9 +3688,10 @@ function saveData(actionType,detail){
     if(detail)_lastSyncDetail=detail;
     if(!actionType&&!_lastSyncAction){_lastSyncAction='auto-save';}
     const _now=new Date().toISOString();
-    // v13: CHỈ cleanup UI state, KHÔNG đổi updatedAt toàn bộ (gây merge sai)
-    items.forEach(e=>{delete e._selCtx;e.selected=false;});
-    const data={items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],deletedAttFileIds:[..._deletedAttFileIds],savedAt:_now};
+    // v18: KHÔNG xóa selected/_selCtx khỏi items gốc (gây mất selection khi rerender)
+    // Thay vào đó strip UI-only props khi serialize
+    const _cleanItems=items.map(function(e){var c=Object.assign({},e);delete c.selected;delete c._selCtx;return c;});
+    const data={items:_cleanItems,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],deletedAttFileIds:[..._deletedAttFileIds],savedAt:_now};
     const json=JSON.stringify(data);
     try{localStorage.setItem(LS_KEY,json);}catch(storageErr){
       console.error('localStorage full:',storageErr);
@@ -3984,9 +3985,17 @@ async function syncToSheets(data){
     // Bước 2: Luôn dùng items HIỆN TẠI (không dùng snapshot cũ từ debounce)
     const currentData={items:[...items],budgets:{...budgets},nextId,advances:[...advances],advNextId,cashBatches:[...(cashBatches||[])],cashBatchNextId:cashBatchNextId||1};
 
+    // v18: Bảo toàn trạng thái chọn trước khi merge
+    const _syncSavedSel=new Map();
+    items.forEach(function(e){if(e.selected)_syncSavedSel.set(e.id,{selected:true,_selCtx:e._selCtx});});
+
     // v11: ENHANCED SAFEGUARD — check count + max ID + max code
     // v13: preferLocal=true vì đây là PUSH (local vừa edit, cần đẩy lên Sheets)
     const mergedItems=mergeItems(currentData.items, remoteItems, true).filter(e=>!_deletedIds.has(e.id));
+    // v18: Khôi phục trạng thái chọn vào mergedItems
+    if(_syncSavedSel.size>0){mergedItems.forEach(function(e){var s=_syncSavedSel.get(e.id);if(s){e.selected=s.selected;e._selCtx=s._selCtx;}});}
+    // v19: Helper strip UI-only props (selected/_selCtx) khi serialize
+    const _stripSel=function(arr){return arr.map(function(e){var c=Object.assign({},e);delete c.selected;delete c._selCtx;return c;});};
     const mergedAdvances=mergeAdvances(currentData.advances, remoteAdvances, true);
     // Helper: tìm max item code (LN260521 → so sánh string)
     const getMaxCode=function(arr){return arr.reduce(function(mx,e){return(e.code&&e.code>mx)?e.code:mx;},'');};
@@ -4001,7 +4010,7 @@ async function syncToSheets(data){
       updateSyncUI('err','⚠️ Dữ liệu local thiếu — không ghi đè server');
       isSyncing=false;
       items=mergedItems;advances=mergedAdvances;
-      const sj=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
+      const sj=JSON.stringify({items:_stripSel(items),budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
       try{localStorage.setItem(LS_KEY,sj);}catch(e){}
       rerender();renderAdvances();
       return;
@@ -4012,7 +4021,7 @@ async function syncToSheets(data){
       updateSyncUI('err','⚠️ Dữ liệu local cũ hơn server — không ghi đè');
       isSyncing=false;
       items=mergedItems;advances=mergedAdvances;
-      const sj=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
+      const sj=JSON.stringify({items:_stripSel(items),budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
       try{localStorage.setItem(LS_KEY,sj);}catch(e){}
       rerender();renderAdvances();
       return;
@@ -4022,7 +4031,7 @@ async function syncToSheets(data){
       updateSyncUI('err','⚠️ Dữ liệu TƯ local thiếu — không ghi đè server');
       isSyncing=false;
       items=mergedItems;advances=mergedAdvances;
-      const sj=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
+      const sj=JSON.stringify({items:_stripSel(items),budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
       try{localStorage.setItem(LS_KEY,sj);}catch(e){}
       rerender();renderAdvances();
       return;
@@ -4049,12 +4058,13 @@ async function syncToSheets(data){
     advances=mergedAdvances;
     advNextId=mergedAdvNextId;
     budgets=mergedBudgets;
-    const mergedJson=JSON.stringify({items,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
+    // v19: _stripSel đã được định nghĩa ở trên (trước safeguard checks)
+    const mergedJson=JSON.stringify({items:_stripSel(items),budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,savedAt:new Date().toISOString()});
     try{localStorage.setItem(LS_KEY,mergedJson);}catch(se){}
 
     // Bước 5: POST merged data lên Sheets
     // v13: POST cashBatches ĐÃ MERGE (không phải currentData snapshot cũ)
-    const merged={items:mergedItems,budgets:mergedBudgets,nextId:mergedNextId,advances:mergedAdvances,advNextId:mergedAdvNextId,
+    const merged={items:_stripSel(mergedItems),budgets:mergedBudgets,nextId:mergedNextId,advances:mergedAdvances,advNextId:mergedAdvNextId,
       cashBatches:cashBatches,cashBatchNextId:cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],deletedAttFileIds:[..._deletedAttFileIds],savedAt:new Date().toISOString()};
     // v11: Thêm metadata để server/debug biết version + content fingerprint
     merged._version=APP_VERSION;

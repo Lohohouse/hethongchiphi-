@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>支付費用明細表 - LOHO HOUSE v2.0</title>
-<!-- v18: Fix xóa attachment sync + ép đồng bộ dữ liệu tất cả máy -->
+<!-- v19: Fix batch selection + PT toggle + PDF attachment display -->
 <script>
 if('serviceWorker' in navigator){
   // updateViaCache:'none' → browser LUÔN fetch sw.js từ network
@@ -23,7 +23,7 @@ if('serviceWorker' in navigator){
     // Kiểm tra SW update mỗi 1 phút (browser sẽ fetch sw.js mới nếu có)
     reg.update();
     setInterval(function(){reg.update();},60*1000);
-    console.log('[SW] Registered v18');
+    console.log('[SW] Registered v19');
   }).catch(function(e){console.warn('[SW] Registration failed:',e);});
 
   // Khi SW mới chiếm quyền → xóa cache + reload
