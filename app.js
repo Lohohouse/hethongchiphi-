@@ -3883,8 +3883,10 @@ function mergeItems(localItems, remoteItems, preferLocal){
       }
       // Cùng status + pull mode → giữ remote (Sheets = truth)
       // Remote status cao hơn → giữ remote
-      // v18: Merge attachments — nhưng BỎ QUA attachment đã bị xóa
+      // v18: Bảo toàn trạng thái chọn từ local sang winner
       const winner=resultMap.get(le.id);
+      if(le.selected&&winner!==le){winner.selected=le.selected;winner._selCtx=le._selCtx;}
+      // v18: Merge attachments — nhưng BỎ QUA attachment đã bị xóa
       const loser=(winner===le)?re:le;
       if(loser.attachments&&loser.attachments.length){
         if(!winner.attachments)winner.attachments=[];
@@ -4136,9 +4138,21 @@ async function loadFromSheets(){
         console.warn('[LOAD] ⚠️ Remote data thiếu savedAt/_version — có thể bị ghi đè bởi phiên bản cũ! Remote items:',remoteItems.length);
       }
 
+      // v18: Bảo toàn trạng thái chọn (selected/_selCtx) khi auto-refresh
+      const _savedSel=new Map();
+      items.forEach(e=>{if(e.selected)_savedSel.set(e.id,{selected:true,_selCtx:e._selCtx});});
+
       const prevCount=items.length;
       items=mergeItems(items, remoteItems);
       advances=mergeAdvances(advances, remoteAdvances);
+
+      // v18: Khôi phục trạng thái chọn sau merge
+      if(_savedSel.size>0){
+        items.forEach(e=>{
+          const s=_savedSel.get(e.id);
+          if(s){e.selected=s.selected;e._selCtx=s._selCtx;}
+        });
+      }
       nextId=Math.max(nextId, remoteNextId, items.reduce((mx,e)=>Math.max(mx,e.id),0)+1);
       advNextId=Math.max(advNextId, remoteAdvNextId, advances.reduce((mx,a)=>Math.max(mx,a.id||0),0)+1);
       // v13: Remote budgets ưu tiên (Sheets = truth)
