@@ -685,9 +685,11 @@ function rebuildTabs(){
   MS.forEach((m,i)=>{
     const t=document.createElement('div');t.className='tab';t.dataset.tab='m'+m;
     t.textContent=`T${i+1}`;
-    // Staff: only current month of current year is clickable
-    if(isStaff()&&(_selYear!==_curYear||i!==_curMonthIdx)){
-      t.classList.add('disabled');t.title='Chỉ được thao tác tháng hiện tại';
+    // Staff: v19 — cho phép xem tháng hiện tại + 2 tháng trước
+    const _staffCanView=isStaff()&&_selYear===_curYear&&i>=_curMonthIdx-2&&i<=_curMonthIdx;
+    const _staffCanViewPrevYear=isStaff()&&_selYear===String(Number(_curYear)-1)&&_curMonthIdx<2&&i>=(12+_curMonthIdx-2);
+    if(isStaff()&&!_staffCanView&&!_staffCanViewPrevYear){
+      t.classList.add('disabled');t.title='Chỉ xem được 3 tháng gần nhất';
     }else{
       t.onclick=()=>switchMain('m'+m);
     }
@@ -4095,9 +4097,10 @@ async function syncToSheets(data){
     const remoteMaxCode=getMaxCode(remoteItems);
     const mergedMaxId=getMaxId(mergedItems);
     const remoteMaxId=getMaxId(remoteItems);
-    // SAFEGUARD 1: count check
-    if(mergedItems.length<remoteItems.length){
-      console.error('[SYNC] SAFEGUARD-COUNT: merged('+mergedItems.length+') < remote('+remoteItems.length+') — ABORTED');
+    // SAFEGUARD 1: count check — v19: so sánh với remote đã trừ deleted
+    const _remoteAliveCount=remoteItems.filter(function(e){return !_deletedIds.has(e.id);}).length;
+    if(mergedItems.length<_remoteAliveCount){
+      console.error('[SYNC] SAFEGUARD-COUNT: merged('+mergedItems.length+') < remoteAlive('+_remoteAliveCount+') remote('+remoteItems.length+') deleted('+_deletedIds.size+') — ABORTED');
       updateSyncUI('err','⚠️ Dữ liệu local thiếu — không ghi đè server');
       isSyncing=false;
       items=mergedItems;advances=mergedAdvances;
