@@ -2013,8 +2013,7 @@ function openApproval(id){
     <div><b>Nộp phiếu:</b> ${e.submitted?'✓ '+e.submittedDate:'Chưa nộp'}</div>
     <div style="margin-top:4px"><b>Mô tả:</b> ${e.note||'--'}</div>
     <div><b>中文:</b> ${e.noteCn||'--'}</div>
-    ${e.contentChanged?'<div style="margin-top:4px;padding:4px 8px;background:rgba(234,88,12,.06);border-radius:6px;border-left:3px solid #ea580c;font-size:11px;color:#ea580c"><b>⚠️ Đã thay đổi nội dung 內容已修改</b> — cần duyệt lại</div>':''}
-    ${e.changeHistory&&e.changeHistory.length?'<div style="margin-top:6px;padding:6px 10px;background:rgba(234,88,12,.03);border-radius:6px;font-size:10px"><b>📝 Lịch sử thay đổi nội dung:</b>'+e.changeHistory.map(function(ch){return '<div style="padding:3px 0;border-bottom:1px solid rgba(234,88,12,.1)"><b>'+ch.date+'</b> — '+ch.by+' — <span style="color:#ea580c">'+ch.fields+'</span>'+(ch.oldNote?'<br><span style="color:var(--g400);font-size:9px">Nội dung cũ: '+ch.oldNote.slice(0,80)+(ch.oldNote.length>80?'…':'')+'</span>':'')+(ch.oldType?'<br><span style="color:var(--g400);font-size:9px">Loại cũ: '+ch.oldType+'</span>':'')+'</div>';}).join('')+'</div>':''}
+    ${e.contentChanged?'<div style="margin-top:6px;padding:8px 12px;background:rgba(220,38,38,.05);border-radius:8px;border-left:3px solid #dc2626;font-size:11px"><div style="color:#dc2626;font-weight:700;margin-bottom:6px">⚠️ Nội dung đã thay đổi — Cần duyệt lại 內容已修改需重審</div>'+(e.changeHistory&&e.changeHistory.length?e.changeHistory.map(function(ch){return '<div style="padding:4px 0;border-top:1px solid rgba(220,38,38,.1)"><span style="font-size:10px;color:var(--g500)">'+ch.date+' — '+ch.by+' — Thay đổi: '+ch.fields+'</span>'+(ch.oldType?'<div style="margin:3px 0;padding:3px 8px;background:rgba(220,38,38,.04);border-radius:4px;font-size:10px"><b style="color:#dc2626">Loại cũ:</b> <s style="color:var(--g400)">'+ch.oldType+'</s></div>':'')+(ch.oldNote?'<div style="margin:3px 0;padding:3px 8px;background:rgba(220,38,38,.04);border-radius:4px;font-size:10px"><b style="color:#dc2626">Nội dung cũ:</b> <s style="color:var(--g400)">'+ch.oldNote+'</s></div>':'')+(ch.oldNoteCn?'<div style="margin:3px 0;padding:3px 8px;background:rgba(220,38,38,.04);border-radius:4px;font-size:10px"><b style="color:#dc2626">TQ cũ:</b> <s style="color:var(--g400)">'+ch.oldNoteCn+'</s></div>':'')+'</div>';}).join(''):'')+'</div>':''}
     ${e.remark?'<div style="margin-top:4px;color:var(--pp)"><b>📝 Ghi chú:</b> '+e.remark+'</div>':''}
     ${e.attachments&&e.attachments.length?'<div style="margin-top:8px"><b>Đính kèm:</b><div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:6px">'+e.attachments.map((a,ai)=>{
       const isBlob=a.url&&a.url.startsWith('blob:');
@@ -2053,7 +2052,7 @@ function openApproval(id){
   if(e.paymentHistory&&e.paymentHistory.length){
     h+='<div style="margin-top:8px;padding:8px 12px;background:var(--g50);border-radius:8px;font-size:11px"><b>📋 Lịch sử thao tác:</b><div style="margin-top:4px">';
     e.paymentHistory.forEach(ph=>{
-      const labels={cash_disbursed:'💰 Chi TM',cash_confirmed:'✓ Nhận tiền',ck_paid:'🏦 Chi CK',cashier_rejected:'↩ Trả lại',prepaid:'💵 QL ứng trước',approved:'✅ Duyệt',voucher:'📋 Nộp CT',boss_approved:'⭐ Boss duyệt',sent:'📤 Gửi duyệt',boss_approve_order:'⭐ Boss duyệt lệnh',locked:'🔐 Khóa đơn',unlocked:'🔓 Mở khóa',method_changed:'🔄 Đổi PT thanh toán',submitted:'📤 Nộp phiếu',adv_reimburse_batch:'💸 Tạo đợt hoàn trả',adv_reimburse_confirmed:'✓ NV xác nhận nhận tiền',note_edited:'✏️ Sửa nội dung',content_reset:'⚠️ Reset duyệt lại'};
+      const labels={cash_disbursed:'💰 Chi TM',cash_confirmed:'✓ Nhận tiền',ck_paid:'🏦 Chi CK',cashier_rejected:'↩ Trả lại',prepaid:'💵 QL ứng trước',approved:'✅ Duyệt',voucher:'📋 Nộp CT',boss_approved:'⭐ Boss duyệt',sent:'📤 Gửi duyệt',boss_approve_order:'⭐ Boss duyệt lệnh',locked:'🔐 Khóa đơn',unlocked:'🔓 Mở khóa',method_changed:'🔄 Đổi PT thanh toán',submitted:'📤 Nộp phiếu',adv_reimburse_batch:'💸 Tạo đợt hoàn trả',adv_reimburse_confirmed:'✓ NV xác nhận nhận tiền',note_edited:'✏️ Sửa nội dung',content_changed:'⚠️ Cần duyệt lại',content_reapproved:'✅ Duyệt lại OK',content_reset:'⚠️ Reset duyệt lại'};
       h+='<div style="padding:2px 0;border-bottom:1px solid var(--g200)"><span style="color:var(--p);font-weight:600">'+(labels[ph.action]||ph.action)+'</span> — '+ph.by+' ('+ph.date+')';
       if(ph.note)h+=' <span style="color:var(--g500)">'+ph.note+'</span>';
       h+='</div>';
@@ -2085,6 +2084,8 @@ function openApproval(id){
 
   h+='<div class="mact">';
   h+=`<button class="btn btn-o" onclick="closeM('approveModal')">Đóng 關閉</button>`;
+  // v19: Nút duyệt lại cho quản lý khi nội dung đã thay đổi
+  if(e.contentChanged&&(isMgr()||isBoss())){h+=`<button class="btn" style="background:rgba(220,38,38,.08);color:#dc2626;border:1px solid rgba(220,38,38,.2);font-weight:700" onclick="reapproveContent(${id})">✓ Duyệt lại nội dung 重新審批</button>`;}
   // If locked and not manager/boss, no action buttons
   if(e.locked&&!isMgr()&&!isBoss()){h+='</div>';document.getElementById('amBody').innerHTML=h;document.getElementById('approveModal').classList.add('show');return;}
   // Draft: anyone can send for approval
@@ -2772,19 +2773,31 @@ function saveQuickNote(){
   e.note=newNote;e.noteCn=newNoteCn;
   e.paymentHistory=(e.paymentHistory||[]);
   e.paymentHistory.push({action:'note_edited',by:currentUser?currentUser.name:'',date:td,note:'Sửa: '+changes.join(', ')});
-  // v19: Nếu đơn đã gửi duyệt → reset về draft, yêu cầu gửi duyệt lại
+  // v19: Nếu đơn đã gửi duyệt → giữ nguyên status, chỉ đánh dấu cần duyệt lại
   const wasSubmitted=e.status!=='draft'&&e.status!=='rejected';
   if(wasSubmitted){
     e.contentChanged=true;
-    const oldStatus=e.status;
-    e.status='draft';e.submitted=false;
-    e.paymentHistory.push({action:'content_reset',by:'Hệ thống',date:td,note:'Nội dung thay đổi sau khi gửi duyệt ('+oldStatus+') → yêu cầu duyệt lại'});
-    closeM('quickNoteModal');saveData();syncImmediate('sua-note-reset',e.code);rerender();
-    toast('⚠️ Nội dung đã thay đổi — đơn chuyển về Nháp, vui lòng gửi duyệt lại');
+    e._forceLocalSync=true;
+    e.paymentHistory.push({action:'content_changed',by:currentUser?currentUser.name:'',date:td,note:'Thay đổi nội dung sau duyệt → cần duyệt lại'});
+    closeM('quickNoteModal');saveData();syncImmediate('sua-note-reapprove',e.code);rerender();
+    toast('⚠️ Nội dung đã thay đổi — cần quản lý duyệt lại');
   }else{
     closeM('quickNoteModal');saveData();syncImmediate('sua-note',e.code);rerender();
     toast('Đã cập nhật nội dung ✓');
   }
+}
+
+// ============ RE-APPROVE CONTENT — v19: Quản lý duyệt lại sau khi nội dung thay đổi ============
+function reapproveContent(id){
+  const e=items.find(x=>x.id===id);if(!e)return;
+  if(!isMgr()&&!isBoss()){toast('Chỉ Quản lý/Boss mới có thể duyệt lại');return;}
+  if(!e.contentChanged){toast('Đơn không cần duyệt lại');return;}
+  e.contentChanged=false;
+  const td=new Date().toISOString().slice(0,10);
+  e.paymentHistory=(e.paymentHistory||[]);
+  e.paymentHistory.push({action:'content_reapproved',by:currentUser?currentUser.name:'',date:td,note:'Quản lý đã duyệt lại nội dung thay đổi ✓'});
+  closeM('approveModal');saveData();syncImmediate('duyet-lai-noidung',e.code);rerender();
+  toast('✓ Đã duyệt lại nội dung — đơn tiếp tục quy trình');
 }
 
 // ============ LOCK/UNLOCK ============
@@ -3268,7 +3281,7 @@ function renderM(m){
         <td style="font-size:9px">${!e.locked?'<select onchange="event.stopPropagation();changePayStatus('+e.id+',this.value)" style="padding:2px 4px;border:1px solid '+(e.payStatus==='Đã chi'?'rgba(5,150,105,.3)':e.payStatus==='Đã cọc'?'rgba(217,119,6,.3)':'var(--g300)')+';border-radius:4px;font-size:9px;background:'+(e.payStatus==='Đã chi'?'var(--sl)':e.payStatus==='Đã cọc'?'var(--wl)':'var(--g100)')+';color:'+(e.payStatus==='Đã chi'?'var(--s)':e.payStatus==='Đã cọc'?'var(--w)':'var(--g600)')+';cursor:pointer"><option value="Chưa chi"'+(e.payStatus==='Chưa chi'?' selected':'')+'>Chưa chi</option><option value="Đã chi"'+(e.payStatus==='Đã chi'?' selected':'')+'>Đã chi</option><option value="Đã cọc"'+(e.payStatus==='Đã cọc'?' selected':'')+'>Đã cọc</option></select>':'<span style="padding:1px 5px;border-radius:4px;background:'+(e.payStatus==='Đã chi'?'var(--sl)':e.payStatus==='Đã cọc'?'var(--wl)':'var(--g100)')+';color:'+(e.payStatus==='Đã chi'?'var(--s)':e.payStatus==='Đã cọc'?'var(--w)':'var(--g600)')+'">'+e.payStatus+' 🔐</span>'}${methodTag}${e.prepaid?'<div style="margin-top:2px;background:rgba(5,150,105,.06);color:#059669;padding:2px 5px;border-radius:4px;font-size:8px;font-weight:700;border:1px solid rgba(5,150,105,.15)">💵 QL ứng</div>':''}</td>
         <td style="font-size:10px">${staff?staff.name:e.staffCode}</td>
         <td style="text-align:center">${hasAtt?'<span style="font-size:11px;cursor:pointer" title="'+e.attachments.length+' file đính kèm 附件" onclick="event.stopPropagation();previewAttachments('+e.id+')">📎<span style="font-size:8px;color:var(--p);font-weight:700">'+e.attachments.length+'</span></span>':''}<button class="bi" title="Thêm đính kèm 添加附件" onclick="event.stopPropagation();addAttachmentToItem(${e.id})" style="font-size:10px;color:var(--p);opacity:.6">➕</button></td>
-        <td><span class="st ${st.c}" style="cursor:pointer" onclick="event.stopPropagation();openApproval(${e.id})">${st.l}</span>${e.contentChanged?'<div style="font-size:8px;color:#ea580c;font-weight:700;margin-top:1px">⚠️ Đã sửa</div>':''}${subIcon}</td>
+        <td>${e.contentChanged?'<span class="st" style="cursor:pointer;background:rgba(220,38,38,.08);color:#dc2626;border:1px solid rgba(220,38,38,.2)" onclick="event.stopPropagation();openApproval(${e.id})">Cần duyệt lại</span>':'<span class="st '+st.c+'" style="cursor:pointer" onclick="event.stopPropagation();openApproval(${e.id})">'+st.l+'</span>'}${subIcon}</td>
         ${colSubmitCT()?`<td style="font-size:9px;color:var(--g500)">${(['voucher','boss_approved','paid'].includes(e.status))?voucherDateStr:''}</td>`:''}
         ${colBossApproval()?`<td style="font-size:9px;color:${e.status==='boss_approved'||e.status==='paid'?'var(--s)':'var(--g400)'}">${e.bossApprovedDate||''}</td>`:''}
         ${colPayDone()?`<td style="font-size:9px;color:var(--g500)">${e.status==='paid'?paidDateStr:''}</td>`:''}
@@ -3764,7 +3777,7 @@ function saveData(actionType,detail){
     const _now=new Date().toISOString();
     // v18: KHÔNG xóa selected/_selCtx khỏi items gốc (gây mất selection khi rerender)
     // Thay vào đó strip UI-only props khi serialize
-    const _cleanItems=items.map(function(e){var c=Object.assign({},e);delete c.selected;delete c._selCtx;return c;});
+    const _cleanItems=items.map(function(e){var c=Object.assign({},e);delete c.selected;delete c._selCtx;delete c._forceLocalSync;return c;});
     const data={items:_cleanItems,budgets,nextId,advances,advNextId,cashBatches,cashBatchNextId,users:USERS,deletedIds:[..._deletedIds],deletedAdvIds:[..._deletedAdvIds],deletedAttFileIds:[..._deletedAttFileIds],savedAt:_now};
     const json=JSON.stringify(data);
     try{localStorage.setItem(LS_KEY,json);}catch(storageErr){
@@ -3955,6 +3968,10 @@ function mergeItems(localItems, remoteItems, preferLocal){
         resultMap.set(le.id,le); // Local status cao hơn → dùng local
       } else if(lOrd===rOrd&&preferLocal){
         resultMap.set(le.id,le); // Cùng status + push mode → local wins (vừa edit)
+      } else if(preferLocal&&le._forceLocalSync){
+        // v19: Content vừa bị sửa → status bị hạ (VD: pending→draft)
+        // Force local thắng để push thay đổi lên Sheets
+        resultMap.set(le.id,le);
       }
       // Cùng status + pull mode → giữ remote (Sheets = truth)
       // Remote status cao hơn → giữ remote
@@ -4069,7 +4086,7 @@ async function syncToSheets(data){
     // v18: Khôi phục trạng thái chọn vào mergedItems
     if(_syncSavedSel.size>0){mergedItems.forEach(function(e){var s=_syncSavedSel.get(e.id);if(s){e.selected=s.selected;e._selCtx=s._selCtx;}});}
     // v19: Helper strip UI-only props (selected/_selCtx) khi serialize
-    const _stripSel=function(arr){return arr.map(function(e){var c=Object.assign({},e);delete c.selected;delete c._selCtx;return c;});};
+    const _stripSel=function(arr){return arr.map(function(e){var c=Object.assign({},e);delete c.selected;delete c._selCtx;delete c._forceLocalSync;return c;});};
     const mergedAdvances=mergeAdvances(currentData.advances, remoteAdvances, true);
     // Helper: tìm max item code (LN260521 → so sánh string)
     const getMaxCode=function(arr){return arr.reduce(function(mx,e){return(e.code&&e.code>mx)?e.code:mx;},'');};
@@ -4162,6 +4179,8 @@ async function syncToSheets(data){
       updateSyncUI('ok','☁️ Đã lưu '+new Date().toLocaleTimeString('vi-VN'));
       _syncRetryCount=0;
       clearUnsynced();
+      // v19: Clear _forceLocalSync sau khi push thành công
+      items.forEach(function(e){delete e._forceLocalSync;});
       // v9: Rerender nếu items HOẶC advances thay đổi
       if(mergedItems.length!==currentData.items.length||mergedAdvances.length!==currentData.advances.length)rerender();
     }else{
