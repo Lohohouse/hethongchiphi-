@@ -4373,6 +4373,13 @@ async function loadFromSheets(){
     _sheetsLoaded=true; // Cho phép user thao tác dù offline
   }finally{
     _isLoading=false; // v11: LUÔN giải phóng mutex
+    // v19: Xử lý pending sync bị queue trong lúc đang load
+    if(_pendingSyncData&&!isSyncing){
+      const pd=_pendingSyncData;
+      _pendingSyncData=null;
+      console.log('[LOAD→SYNC] Processing queued sync after load completed');
+      setTimeout(function(){syncToSheets(pd);},500);
+    }
   }
 }
 // Backup: tải file JSON về máy
