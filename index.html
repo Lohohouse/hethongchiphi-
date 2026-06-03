@@ -398,11 +398,17 @@ body>*:not(#printOverlay){display:none !important}
   <div class="modal" style="max-width:460px">
     <h3>Sửa nội dung 編輯內容</h3>
     <input type="hidden" id="qnId"/>
-    <div style="margin-bottom:6px;font-size:11px;color:var(--g400)" id="qnCode"></div>
+    <div style="margin-bottom:8px;font-size:11px;color:var(--g400)" id="qnCode"></div>
+    <label style="font-size:12px;font-weight:600">Loại chi phí 費用類別</label>
+    <select id="qnType" style="width:100%;border:1px solid var(--g200);border-radius:8px;padding:8px;font-size:13px;margin-bottom:8px"></select>
     <label style="font-size:12px;font-weight:600">Nội dung tiếng Việt 越南語內容</label>
     <textarea id="qnNote" rows="3" style="width:100%;border:1px solid var(--g200);border-radius:8px;padding:8px;font-size:13px;resize:vertical" placeholder="Nhập nội dung..."></textarea>
-    <label style="font-size:12px;font-weight:600;margin-top:8px;display:block">Dịch tiếng Trung 中文翻譯</label>
-    <textarea id="qnNoteCn" rows="2" style="width:100%;border:1px solid var(--g200);border-radius:8px;padding:8px;font-size:13px;resize:vertical" placeholder="中文翻譯..."></textarea>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+      <label style="font-size:12px;font-weight:600;flex:1">Dịch tiếng Trung 中文翻譯</label>
+      <button class="btn btn-sm" id="qnTransBtn" onclick="translateQuickNote()" style="font-size:10px;padding:3px 10px;background:rgba(99,102,241,.08);color:var(--p);border:1px solid rgba(99,102,241,.15)">🔄 Tự động dịch</button>
+    </div>
+    <textarea id="qnNoteCn" rows="2" style="width:100%;border:1px solid var(--g200);border-radius:8px;padding:8px;font-size:13px;resize:vertical;margin-top:4px" placeholder="中文翻譯..."></textarea>
+    <div id="qnChangeWarning" style="display:none;margin-top:8px;padding:6px 10px;background:rgba(234,88,12,.06);border-radius:6px;border-left:3px solid #ea580c;font-size:11px;color:#ea580c">⚠️ Đơn đã gửi duyệt — sau khi lưu sẽ cần gửi duyệt lại</div>
     <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
       <button class="btn" style="background:var(--g100);color:var(--g600)" onclick="closeM('quickNoteModal')">Hủy 取消</button>
       <button class="btn" onclick="saveQuickNote()">Lưu 保存</button>

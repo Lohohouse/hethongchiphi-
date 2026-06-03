@@ -2013,6 +2013,8 @@ function openApproval(id){
     <div><b>Nộp phiếu:</b> ${e.submitted?'✓ '+e.submittedDate:'Chưa nộp'}</div>
     <div style="margin-top:4px"><b>Mô tả:</b> ${e.note||'--'}</div>
     <div><b>中文:</b> ${e.noteCn||'--'}</div>
+    ${e.contentChanged?'<div style="margin-top:4px;padding:4px 8px;background:rgba(234,88,12,.06);border-radius:6px;border-left:3px solid #ea580c;font-size:11px;color:#ea580c"><b>⚠️ Đã thay đổi nội dung 內容已修改</b> — cần duyệt lại</div>':''}
+    ${e.changeHistory&&e.changeHistory.length?'<div style="margin-top:6px;padding:6px 10px;background:rgba(234,88,12,.03);border-radius:6px;font-size:10px"><b>📝 Lịch sử thay đổi nội dung:</b>'+e.changeHistory.map(function(ch){return '<div style="padding:3px 0;border-bottom:1px solid rgba(234,88,12,.1)"><b>'+ch.date+'</b> — '+ch.by+' — <span style="color:#ea580c">'+ch.fields+'</span>'+(ch.oldNote?'<br><span style="color:var(--g400);font-size:9px">Nội dung cũ: '+ch.oldNote.slice(0,80)+(ch.oldNote.length>80?'…':'')+'</span>':'')+(ch.oldType?'<br><span style="color:var(--g400);font-size:9px">Loại cũ: '+ch.oldType+'</span>':'')+'</div>';}).join('')+'</div>':''}
     ${e.remark?'<div style="margin-top:4px;color:var(--pp)"><b>📝 Ghi chú:</b> '+e.remark+'</div>':''}
     ${e.attachments&&e.attachments.length?'<div style="margin-top:8px"><b>Đính kèm:</b><div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:6px">'+e.attachments.map((a,ai)=>{
       const isBlob=a.url&&a.url.startsWith('blob:');
@@ -2051,7 +2053,7 @@ function openApproval(id){
   if(e.paymentHistory&&e.paymentHistory.length){
     h+='<div style="margin-top:8px;padding:8px 12px;background:var(--g50);border-radius:8px;font-size:11px"><b>📋 Lịch sử thao tác:</b><div style="margin-top:4px">';
     e.paymentHistory.forEach(ph=>{
-      const labels={cash_disbursed:'💰 Chi TM',cash_confirmed:'✓ Nhận tiền',ck_paid:'🏦 Chi CK',cashier_rejected:'↩ Trả lại',prepaid:'💵 QL ứng trước',approved:'✅ Duyệt',voucher:'📋 Nộp CT',boss_approved:'⭐ Boss duyệt',sent:'📤 Gửi duyệt',boss_approve_order:'⭐ Boss duyệt lệnh',locked:'🔐 Khóa đơn',unlocked:'🔓 Mở khóa',method_changed:'🔄 Đổi PT thanh toán',submitted:'📤 Nộp phiếu',adv_reimburse_batch:'💸 Tạo đợt hoàn trả',adv_reimburse_confirmed:'✓ NV xác nhận nhận tiền'};
+      const labels={cash_disbursed:'💰 Chi TM',cash_confirmed:'✓ Nhận tiền',ck_paid:'🏦 Chi CK',cashier_rejected:'↩ Trả lại',prepaid:'💵 QL ứng trước',approved:'✅ Duyệt',voucher:'📋 Nộp CT',boss_approved:'⭐ Boss duyệt',sent:'📤 Gửi duyệt',boss_approve_order:'⭐ Boss duyệt lệnh',locked:'🔐 Khóa đơn',unlocked:'🔓 Mở khóa',method_changed:'🔄 Đổi PT thanh toán',submitted:'📤 Nộp phiếu',adv_reimburse_batch:'💸 Tạo đợt hoàn trả',adv_reimburse_confirmed:'✓ NV xác nhận nhận tiền',note_edited:'✏️ Sửa nội dung',content_reset:'⚠️ Reset duyệt lại'};
       h+='<div style="padding:2px 0;border-bottom:1px solid var(--g200)"><span style="color:var(--p);font-weight:600">'+(labels[ph.action]||ph.action)+'</span> — '+ph.by+' ('+ph.date+')';
       if(ph.note)h+=' <span style="color:var(--g500)">'+ph.note+'</span>';
       h+='</div>';
@@ -2713,31 +2715,76 @@ function togglePayMethod(id){
   toast('Đổi PT → '+(e.method==='Tiền mặt'?'Tiền mặt':'Chuyển khoản')+' ✓');
 }
 
-// ============ QUICK EDIT NOTE — v19: Sửa nội dung + dịch Trung không cần mở form đầy đủ ============
+// ============ QUICK EDIT NOTE — v19: Sửa nội dung + loại + dịch Trung + change tracking ============
 function quickEditNote(id){
   const e=items.find(x=>x.id===id);if(!e)return;
   if(e.locked){toast('Đơn đã khóa 🔐 — không thể sửa');return;}
-  // Staff chỉ sửa đơn của mình
   if(isStaff()&&e.staffCode!==currentUser.staffCode){toast('Không có quyền sửa đơn của người khác');return;}
   document.getElementById('qnId').value=id;
-  document.getElementById('qnCode').textContent=e.code+' | '+e.type+' | '+fmtV(e.amount);
+  document.getElementById('qnCode').textContent=e.code+' | '+fmtV(e.amount);
+  // Populate type dropdown
+  const typeSel=document.getElementById('qnType');
+  typeSel.innerHTML=catOpts();typeSel.value=e.type;
   document.getElementById('qnNote').value=e.note||'';
   document.getElementById('qnNoteCn').value=e.noteCn||'';
+  // Hiện cảnh báo nếu đơn đã gửi duyệt
+  const warn=document.getElementById('qnChangeWarning');
+  warn.style.display=(e.status!=='draft')?'block':'none';
   document.getElementById('quickNoteModal').classList.add('show');
   document.getElementById('qnNote').focus();
+}
+// v19: Tự động dịch tiếng Việt → tiếng Trung phồn thể qua Apps Script
+function translateQuickNote(){
+  const note=document.getElementById('qnNote').value.trim();
+  if(!note){toast('Nhập nội dung tiếng Việt trước');return;}
+  if(!GSHEET_API){toast('Chưa cấu hình Google Sheets API');return;}
+  const btn=document.getElementById('qnTransBtn');
+  btn.disabled=true;btn.textContent='⏳ Đang dịch...';
+  fetch(GSHEET_API+'?action=translate',{method:'POST',body:JSON.stringify({action:'translate',text:note}),headers:{'Content-Type':'text/plain'}})
+  .then(function(r){return r.json();})
+  .then(function(r){
+    btn.disabled=false;btn.textContent='🔄 Tự động dịch';
+    if(r.ok&&r.translated){document.getElementById('qnNoteCn').value=r.translated;toast('Đã dịch thành công ✓');}
+    else{toast('Lỗi dịch: '+(r.error||''));}
+  })
+  .catch(function(err){btn.disabled=false;btn.textContent='🔄 Tự động dịch';toast('Lỗi kết nối: '+err.message);});
 }
 function saveQuickNote(){
   const id=parseInt(document.getElementById('qnId').value);
   const e=items.find(x=>x.id===id);if(!e)return;
+  const newType=document.getElementById('qnType').value;
   const newNote=document.getElementById('qnNote').value.trim();
   const newNoteCn=document.getElementById('qnNoteCn').value.trim();
-  if(newNote===e.note&&newNoteCn===(e.noteCn||'')){closeM('quickNoteModal');return;}
+  const typeChanged=newType!==e.type;
+  const noteChanged=newNote!==(e.note||'');
+  const cnChanged=newNoteCn!==(e.noteCn||'');
+  if(!typeChanged&&!noteChanged&&!cnChanged){closeM('quickNoteModal');return;}
   const td=new Date().toISOString().slice(0,10);
+  // v19: Lưu lịch sử thay đổi (giữ nội dung cũ)
+  if(!e.changeHistory)e.changeHistory=[];
+  const changes=[];
+  if(typeChanged)changes.push('Loại: '+e.type+' → '+newType);
+  if(noteChanged)changes.push('Nội dung VN');
+  if(cnChanged)changes.push('Dịch TQ');
+  e.changeHistory.push({date:td,by:currentUser?currentUser.name:'',fields:changes.join(', '),oldType:typeChanged?e.type:undefined,oldNote:noteChanged?e.note:undefined,oldNoteCn:cnChanged?e.noteCn:undefined});
+  // Cập nhật giá trị mới
+  if(typeChanged){e.type=newType;const cat=CATS.find(c=>c.vn===newType);e.typeCn=cat?cat.cn:'';}
   e.note=newNote;e.noteCn=newNoteCn;
   e.paymentHistory=(e.paymentHistory||[]);
-  e.paymentHistory.push({action:'note_edited',by:currentUser?currentUser.name:'',date:td,note:'Sửa nội dung/dịch TQ'});
-  closeM('quickNoteModal');saveData();syncImmediate('sua-note',e.code);rerender();
-  toast('Đã cập nhật nội dung ✓');
+  e.paymentHistory.push({action:'note_edited',by:currentUser?currentUser.name:'',date:td,note:'Sửa: '+changes.join(', ')});
+  // v19: Nếu đơn đã gửi duyệt → reset về draft, yêu cầu gửi duyệt lại
+  const wasSubmitted=e.status!=='draft'&&e.status!=='rejected';
+  if(wasSubmitted){
+    e.contentChanged=true;
+    const oldStatus=e.status;
+    e.status='draft';e.submitted=false;
+    e.paymentHistory.push({action:'content_reset',by:'Hệ thống',date:td,note:'Nội dung thay đổi sau khi gửi duyệt ('+oldStatus+') → yêu cầu duyệt lại'});
+    closeM('quickNoteModal');saveData();syncImmediate('sua-note-reset',e.code);rerender();
+    toast('⚠️ Nội dung đã thay đổi — đơn chuyển về Nháp, vui lòng gửi duyệt lại');
+  }else{
+    closeM('quickNoteModal');saveData();syncImmediate('sua-note',e.code);rerender();
+    toast('Đã cập nhật nội dung ✓');
+  }
 }
 
 // ============ LOCK/UNLOCK ============
@@ -3221,7 +3268,7 @@ function renderM(m){
         <td style="font-size:9px">${!e.locked?'<select onchange="event.stopPropagation();changePayStatus('+e.id+',this.value)" style="padding:2px 4px;border:1px solid '+(e.payStatus==='Đã chi'?'rgba(5,150,105,.3)':e.payStatus==='Đã cọc'?'rgba(217,119,6,.3)':'var(--g300)')+';border-radius:4px;font-size:9px;background:'+(e.payStatus==='Đã chi'?'var(--sl)':e.payStatus==='Đã cọc'?'var(--wl)':'var(--g100)')+';color:'+(e.payStatus==='Đã chi'?'var(--s)':e.payStatus==='Đã cọc'?'var(--w)':'var(--g600)')+';cursor:pointer"><option value="Chưa chi"'+(e.payStatus==='Chưa chi'?' selected':'')+'>Chưa chi</option><option value="Đã chi"'+(e.payStatus==='Đã chi'?' selected':'')+'>Đã chi</option><option value="Đã cọc"'+(e.payStatus==='Đã cọc'?' selected':'')+'>Đã cọc</option></select>':'<span style="padding:1px 5px;border-radius:4px;background:'+(e.payStatus==='Đã chi'?'var(--sl)':e.payStatus==='Đã cọc'?'var(--wl)':'var(--g100)')+';color:'+(e.payStatus==='Đã chi'?'var(--s)':e.payStatus==='Đã cọc'?'var(--w)':'var(--g600)')+'">'+e.payStatus+' 🔐</span>'}${methodTag}${e.prepaid?'<div style="margin-top:2px;background:rgba(5,150,105,.06);color:#059669;padding:2px 5px;border-radius:4px;font-size:8px;font-weight:700;border:1px solid rgba(5,150,105,.15)">💵 QL ứng</div>':''}</td>
         <td style="font-size:10px">${staff?staff.name:e.staffCode}</td>
         <td style="text-align:center">${hasAtt?'<span style="font-size:11px;cursor:pointer" title="'+e.attachments.length+' file đính kèm 附件" onclick="event.stopPropagation();previewAttachments('+e.id+')">📎<span style="font-size:8px;color:var(--p);font-weight:700">'+e.attachments.length+'</span></span>':''}<button class="bi" title="Thêm đính kèm 添加附件" onclick="event.stopPropagation();addAttachmentToItem(${e.id})" style="font-size:10px;color:var(--p);opacity:.6">➕</button></td>
-        <td><span class="st ${st.c}" style="cursor:pointer" onclick="event.stopPropagation();openApproval(${e.id})">${st.l}</span>${subIcon}</td>
+        <td><span class="st ${st.c}" style="cursor:pointer" onclick="event.stopPropagation();openApproval(${e.id})">${st.l}</span>${e.contentChanged?'<div style="font-size:8px;color:#ea580c;font-weight:700;margin-top:1px">⚠️ Đã sửa</div>':''}${subIcon}</td>
         ${colSubmitCT()?`<td style="font-size:9px;color:var(--g500)">${(['voucher','boss_approved','paid'].includes(e.status))?voucherDateStr:''}</td>`:''}
         ${colBossApproval()?`<td style="font-size:9px;color:${e.status==='boss_approved'||e.status==='paid'?'var(--s)':'var(--g400)'}">${e.bossApprovedDate||''}</td>`:''}
         ${colPayDone()?`<td style="font-size:9px;color:var(--g500)">${e.status==='paid'?paidDateStr:''}</td>`:''}
