@@ -2713,6 +2713,33 @@ function togglePayMethod(id){
   toast('Đổi PT → '+(e.method==='Tiền mặt'?'Tiền mặt':'Chuyển khoản')+' ✓');
 }
 
+// ============ QUICK EDIT NOTE — v19: Sửa nội dung + dịch Trung không cần mở form đầy đủ ============
+function quickEditNote(id){
+  const e=items.find(x=>x.id===id);if(!e)return;
+  if(e.locked){toast('Đơn đã khóa 🔐 — không thể sửa');return;}
+  // Staff chỉ sửa đơn của mình
+  if(isStaff()&&e.staffCode!==currentUser.staffCode){toast('Không có quyền sửa đơn của người khác');return;}
+  document.getElementById('qnId').value=id;
+  document.getElementById('qnCode').textContent=e.code+' | '+e.type+' | '+fmtV(e.amount);
+  document.getElementById('qnNote').value=e.note||'';
+  document.getElementById('qnNoteCn').value=e.noteCn||'';
+  document.getElementById('quickNoteModal').classList.add('show');
+  document.getElementById('qnNote').focus();
+}
+function saveQuickNote(){
+  const id=parseInt(document.getElementById('qnId').value);
+  const e=items.find(x=>x.id===id);if(!e)return;
+  const newNote=document.getElementById('qnNote').value.trim();
+  const newNoteCn=document.getElementById('qnNoteCn').value.trim();
+  if(newNote===e.note&&newNoteCn===(e.noteCn||'')){closeM('quickNoteModal');return;}
+  const td=new Date().toISOString().slice(0,10);
+  e.note=newNote;e.noteCn=newNoteCn;
+  e.paymentHistory=(e.paymentHistory||[]);
+  e.paymentHistory.push({action:'note_edited',by:currentUser?currentUser.name:'',date:td,note:'Sửa nội dung/dịch TQ'});
+  closeM('quickNoteModal');saveData();syncImmediate('sua-note',e.code);rerender();
+  toast('Đã cập nhật nội dung ✓');
+}
+
 // ============ LOCK/UNLOCK ============
 function lockItem(id){
   const e=items.find(x=>x.id===id);if(!e)return;
@@ -2811,7 +2838,7 @@ function renderM(m){
       '<td style="font-size:10px;font-weight:500">'+(e.code||'')+'</td>'+
       '<td style="font-size:10px">'+ds+wfDate+'</td>'+
       '<td><span style="font-size:10px">'+e.type+'</span><br><span style="font-size:9px;color:var(--g400)">'+(e.typeCn||'')+'</span></td>'+
-      '<td style="font-size:10px;max-width:200px;white-space:normal;word-break:break-word">'+(e.note||'')+prepaidTag+qAdvTag+'</td>'+
+      '<td style="font-size:10px;max-width:200px;white-space:normal;word-break:break-word">'+(e.note||'')+(e.locked?'':'<span style="cursor:pointer;margin-left:4px;opacity:.4;font-size:9px" title="Sửa nội dung 編輯內容" onclick="event.stopPropagation();quickEditNote('+e.id+')">✏️</span>')+prepaidTag+qAdvTag+'</td>'+
       '<td class="amt">'+fmtV(e.amount)+'</td>'+
       '<td style="font-size:9px"><span style="padding:1px 5px;border-radius:4px;cursor:'+(e.status!=='paid'&&!e.locked&&(isMgr()||isBoss()||isAccountant())?'pointer':'default')+';background:'+(e.method==='Tiền mặt'?'rgba(217,119,6,.06)':'rgba(37,99,235,.08)')+';color:'+(e.method==='Tiền mặt'?'#b45309':'#2563eb')+'"'+(e.status!=='paid'&&!e.locked&&(isMgr()||isBoss()||isAccountant())?' title="Click để đổi PT 點擊切換" onclick="event.stopPropagation();togglePayMethod('+e.id+')"':'')+'">'+(e.method==='Tiền mặt'?'TM':'CK')+'</span></td>'+
       '<td style="font-size:10px">'+(staff?staff.name:e.staffCode)+'</td>'+
@@ -2837,7 +2864,7 @@ function renderM(m){
       '<td style="font-size:10px;font-weight:500">'+(e.code||'')+'</td>'+
       '<td style="font-size:10px">'+ds+wfDate+'</td>'+
       '<td><span style="font-size:10px">'+e.type+'</span><br><span style="font-size:9px;color:var(--g400)">'+(e.typeCn||'')+'</span></td>'+
-      '<td style="font-size:10px;max-width:200px;white-space:normal;word-break:break-word">'+(e.note||'')+prepaidTag+qAdvTag+'</td>'+
+      '<td style="font-size:10px;max-width:200px;white-space:normal;word-break:break-word">'+(e.note||'')+(e.locked?'':'<span style="cursor:pointer;margin-left:4px;opacity:.4;font-size:9px" title="Sửa nội dung 編輯內容" onclick="event.stopPropagation();quickEditNote('+e.id+')">✏️</span>')+prepaidTag+qAdvTag+'</td>'+
       '<td class="amt">'+fmtV(e.amount)+'</td>'+
       '<td style="font-size:9px"><span style="padding:1px 5px;border-radius:4px;cursor:'+(e.status!=='paid'&&!e.locked&&(isMgr()||isBoss()||isAccountant())?'pointer':'default')+';background:'+(e.method==='Tiền mặt'?'rgba(217,119,6,.06)':'rgba(37,99,235,.08)')+';color:'+(e.method==='Tiền mặt'?'#b45309':'#2563eb')+'"'+(e.status!=='paid'&&!e.locked&&(isMgr()||isBoss()||isAccountant())?' title="Click để đổi PT 點擊切換" onclick="event.stopPropagation();togglePayMethod('+e.id+')"':'')+'">'+(e.method==='Tiền mặt'?'TM':'CK')+'</span></td>'+
       '<td style="font-size:10px">'+(staff?staff.name:e.staffCode)+'</td>'+
@@ -3022,7 +3049,7 @@ function renderM(m){
           '<td style="font-size:10px;font-weight:500">'+(e.code||'')+'</td>'+
           '<td style="font-size:10px">'+ds+'</td>'+
           '<td style="font-size:10px">'+e.type+'</td>'+
-          '<td style="font-size:10px;max-width:200px;white-space:normal">'+( e.note||'')+'</td>'+
+          '<td style="font-size:10px;max-width:200px;white-space:normal">'+(e.note||'')+(e.locked?'':'<span style="cursor:pointer;margin-left:4px;opacity:.4;font-size:9px" title="Sửa nội dung 編輯內容" onclick="event.stopPropagation();quickEditNote('+e.id+')">✏️</span>')+'</td>'+
           '<td class="amt">'+fmtV(e.amount)+'</td>'+
           '<td style="font-size:9px"><span style="padding:1px 5px;border-radius:4px;background:'+(e.method==='Tiền mặt'?'rgba(217,119,6,.06)':'rgba(37,99,235,.08)')+';color:'+(e.method==='Tiền mặt'?'#b45309':'#2563eb')+'">'+(e.method==='Tiền mặt'?'TM':'CK')+'</span></td>'+
           '<td style="font-size:10px">'+(staff?staff.name:e.staffCode)+'</td>'+
@@ -3189,7 +3216,7 @@ function renderM(m){
         <td style="font-size:10px;font-weight:500">${e.code||''}${e.locked?'<br><span style="font-size:8px;color:#1e293b;font-weight:700" title="Đã khóa bởi '+(e.lockedBy||'')+' '+fmtDate(e.lockedDate||'')+'">🔐</span>':''}${e.hidden&&isMgr()?'<br><span style="font-size:8px;color:var(--d);font-weight:600">ẨN</span>':''}</td>
         <td style="font-size:10px">${ds}${mainWfDate}</td>
         <td><span style="font-size:10px">${e.type}</span><br><span style="font-size:9px;color:var(--g400)">${e.typeCn||''}</span></td>
-        <td style="font-size:10px;max-width:200px;white-space:normal;word-break:break-word;line-height:1.4;overflow:hidden">${(noteFull&&noteFull.length>100?noteFull.slice(0,100)+'…':noteFull)}${cnFull?'<br><span style="font-size:9px;color:var(--g400)">'+(cnFull.length>80?cnFull.slice(0,80)+'…':cnFull)+'</span>':''}${remarkStr}${vatIcon}${payerInfo}${advTag}</td>
+        <td style="font-size:10px;max-width:200px;white-space:normal;word-break:break-word;line-height:1.4;overflow:hidden">${(noteFull&&noteFull.length>100?noteFull.slice(0,100)+'…':noteFull)}${cnFull?'<br><span style="font-size:9px;color:var(--g400)">'+(cnFull.length>80?cnFull.slice(0,80)+'…':cnFull)+'</span>':''}${e.locked?'':'<span style="cursor:pointer;margin-left:4px;opacity:.4;font-size:9px" title="Sửa nội dung 編輯內容" onclick="event.stopPropagation();quickEditNote('+e.id+')">✏️</span>'}${remarkStr}${vatIcon}${payerInfo}${advTag}</td>
         <td class="amt">${fmtV(e.amount)}</td>
         <td style="font-size:9px">${!e.locked?'<select onchange="event.stopPropagation();changePayStatus('+e.id+',this.value)" style="padding:2px 4px;border:1px solid '+(e.payStatus==='Đã chi'?'rgba(5,150,105,.3)':e.payStatus==='Đã cọc'?'rgba(217,119,6,.3)':'var(--g300)')+';border-radius:4px;font-size:9px;background:'+(e.payStatus==='Đã chi'?'var(--sl)':e.payStatus==='Đã cọc'?'var(--wl)':'var(--g100)')+';color:'+(e.payStatus==='Đã chi'?'var(--s)':e.payStatus==='Đã cọc'?'var(--w)':'var(--g600)')+';cursor:pointer"><option value="Chưa chi"'+(e.payStatus==='Chưa chi'?' selected':'')+'>Chưa chi</option><option value="Đã chi"'+(e.payStatus==='Đã chi'?' selected':'')+'>Đã chi</option><option value="Đã cọc"'+(e.payStatus==='Đã cọc'?' selected':'')+'>Đã cọc</option></select>':'<span style="padding:1px 5px;border-radius:4px;background:'+(e.payStatus==='Đã chi'?'var(--sl)':e.payStatus==='Đã cọc'?'var(--wl)':'var(--g100)')+';color:'+(e.payStatus==='Đã chi'?'var(--s)':e.payStatus==='Đã cọc'?'var(--w)':'var(--g600)')+'">'+e.payStatus+' 🔐</span>'}${methodTag}${e.prepaid?'<div style="margin-top:2px;background:rgba(5,150,105,.06);color:#059669;padding:2px 5px;border-radius:4px;font-size:8px;font-weight:700;border:1px solid rgba(5,150,105,.15)">💵 QL ứng</div>':''}</td>
         <td style="font-size:10px">${staff?staff.name:e.staffCode}</td>

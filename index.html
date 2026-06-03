@@ -393,6 +393,23 @@ body>*:not(#printOverlay){display:none !important}
 <!-- APPROVAL MODAL -->
 <div class="mbg" id="approveModal"><div class="modal" id="amBody"></div></div>
 
+<!-- QUICK EDIT NOTE MODAL — v19 -->
+<div class="mbg" id="quickNoteModal">
+  <div class="modal" style="max-width:460px">
+    <h3>Sửa nội dung 編輯內容</h3>
+    <input type="hidden" id="qnId"/>
+    <div style="margin-bottom:6px;font-size:11px;color:var(--g400)" id="qnCode"></div>
+    <label style="font-size:12px;font-weight:600">Nội dung tiếng Việt 越南語內容</label>
+    <textarea id="qnNote" rows="3" style="width:100%;border:1px solid var(--g200);border-radius:8px;padding:8px;font-size:13px;resize:vertical" placeholder="Nhập nội dung..."></textarea>
+    <label style="font-size:12px;font-weight:600;margin-top:8px;display:block">Dịch tiếng Trung 中文翻譯</label>
+    <textarea id="qnNoteCn" rows="2" style="width:100%;border:1px solid var(--g200);border-radius:8px;padding:8px;font-size:13px;resize:vertical" placeholder="中文翻譯..."></textarea>
+    <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+      <button class="btn" style="background:var(--g100);color:var(--g600)" onclick="closeM('quickNoteModal')">Hủy 取消</button>
+      <button class="btn" onclick="saveQuickNote()">Lưu 保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- EDIT MODAL -->
 <div class="mbg" id="editModal">
   <div class="modal">
