@@ -1,1 +1,1 @@
-{"version":19,"minVersion":15,"updatedAt":"2026-05-30T04:00:00Z","note":"v19: Fix lỗi chọn hàng loạt bị nhảy lại + đổi PT sau duyệt + fix PDF đính kèm"}
+{"version":20,"minVersion":15,"updatedAt":"2026-06-09T08:00:00Z","note":"v20: Fix hoàn trả NV — merge preserve advPaid + duplicate prevention + batch dedup + forceLocalSync"}

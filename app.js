@@ -1,5 +1,5 @@
 // ============ v17: AUTO-UPDATE — TỰ ĐỘNG CẬP NHẬT TẤT CẢ MÁY ============
-const APP_VERSION=19;
+const APP_VERSION=20;
 const VERSION_CHECK_URL=location.origin+location.pathname.replace(/[^\/]*$/,'')+'version.json';
 
 // Báo version hiện tại cho Service Worker
@@ -2164,13 +2164,23 @@ function batchKttReturn(m){
   saveData();syncImmediate('KTT-trả-lại-hàng-loạt','KTT trả lại '+sel.length);renderM(m);toast('KTT đã trả lại '+sel.length+' đơn');
 }
 function returnItem(id){const r=prompt('Lý do trả về:');if(!r||!r.trim())return;const e=items.find(x=>x.id===id);if(!e)return;e.status='rejected';e.rejectedReason='[Boss trả về] '+r.trim();e.paymentHistory=(e.paymentHistory||[]);e.paymentHistory.push({action:'boss_returned',by:currentUser?currentUser.name:'',date:new Date().toISOString().slice(0,10),note:'Boss trả về: '+r.trim()});closeM('approveModal');saveData();syncImmediate('boss-trả-về',e.code);rerender();toast('Đã trả về');}
-function confirmAdvPaid(id){if(!confirm('Xác nhận đã hoàn trả tiền tạm ứng cho nhân viên?'))return;const e=items.find(x=>x.id===id);if(!e)return;e.advPaid=true;e.advPaidDate=new Date().toISOString().slice(0,10);e.advConfirmedBy=currentUser?currentUser.name:'';closeM('approveModal');saveData();syncImmediate('xac-nhan-hoan-tra',e.code);rerender();toast('Đã xác nhận hoàn trả');}
+function confirmAdvPaid(id){if(!confirm('Xác nhận đã hoàn trả tiền tạm ứng cho nhân viên?'))return;const e=items.find(x=>x.id===id);if(!e)return;e.advPaid=true;e.advPaidDate=new Date().toISOString().slice(0,10);e.advConfirmedBy=currentUser?currentUser.name:'';e._forceLocalSync=true;closeM('approveModal');saveData();syncImmediate('xac-nhan-hoan-tra',e.code);rerender();toast('Đã xác nhận hoàn trả');}
 
 // ============ ADVANCE REIMBURSEMENT BATCH ============
 function batchAdvReimburse(m){
   if(!isMgr())return;
-  const sel=getSel(m).filter(e=>hasAdvPayerInList(e.payer)&&e.status==='paid'&&!e.advPaid&&!e.advBatchId);
-  if(!sel.length){toast('Chọn các khoản NV tạm ứng/KT BP đã hoàn tất & chưa hoàn trả (chưa thuộc đợt nào)');return;}
+  // v20: Kiểm tra trùng lặp kỹ hơn — check cả advBatchId VÀ xem item đã nằm trong batch nào chưa
+  const existingBatchItemIds=new Set();
+  cashBatches.filter(b=>b.type==='adv_reimburse').forEach(b=>{b.itemIds.forEach(id=>existingBatchItemIds.add(id));});
+  const allAdv=getSel(m).filter(e=>hasAdvPayerInList(e.payer)&&e.status==='paid'&&!e.advPaid);
+  const alreadyInBatch=allAdv.filter(e=>e.advBatchId||existingBatchItemIds.has(e.id));
+  const sel=allAdv.filter(e=>!e.advBatchId&&!existingBatchItemIds.has(e.id));
+  if(!sel.length){
+    if(alreadyInBatch.length){toast('⚠ '+alreadyInBatch.length+' khoản đã thuộc đợt hoàn trả khác (chờ NV xác nhận). Không thể tạo đợt trùng.');}
+    else{toast('Chọn các khoản NV tạm ứng/KT BP đã hoàn tất & chưa hoàn trả (chưa thuộc đợt nào)');}
+    return;
+  }
+  if(alreadyInBatch.length){toast('ℹ Bỏ qua '+alreadyInBatch.length+' khoản đã thuộc đợt hoàn trả khác.');}
   // Group by advStaff
   const byStaff={};sel.forEach(e=>{const k=e.advStaff||'unknown';if(!byStaff[k])byStaff[k]=[];byStaff[k].push(e);});
   const staffKeys=Object.keys(byStaff);
@@ -2201,8 +2211,11 @@ function batchAdvReimburse(m){
   document.getElementById('approveModal').classList.add('show');
 }
 function createAdvBatch(m){
-  const sel=getSel(m).filter(e=>hasAdvPayerInList(e.payer)&&e.status==='paid'&&!e.advPaid&&!e.advBatchId);
-  if(!sel.length){toast('Không có mục hợp lệ');return;}
+  // v20: Duplicate prevention — check cả advBatchId VÀ existing batch itemIds
+  const existingBatchItemIds=new Set();
+  cashBatches.filter(b=>b.type==='adv_reimburse').forEach(b=>{b.itemIds.forEach(id=>existingBatchItemIds.add(id));});
+  const sel=getSel(m).filter(e=>hasAdvPayerInList(e.payer)&&e.status==='paid'&&!e.advPaid&&!e.advBatchId&&!existingBatchItemIds.has(e.id));
+  if(!sel.length){toast('Không có mục hợp lệ (có thể đã thuộc đợt hoàn trả khác)');return;}
   const note=document.getElementById('advBatchNote')?.value||'';
   const today=new Date().toISOString().slice(0,10);
   // Group by advStaff → create one batch per staff
@@ -2221,6 +2234,7 @@ function createAdvBatch(m){
     });
     grp.forEach(e=>{
       e.advBatchId=batchId;e.advReimburseStatus='pending';
+      e._forceLocalSync=true; // v20: Đảm bảo sync lên GSheet
       e.paymentHistory=(e.paymentHistory||[]);
       e.paymentHistory.push({action:'adv_reimburse_batch',by:currentUser?currentUser.name:'',date:today,note:'Đợt hoàn trả NV #'+batchId+' → '+staffDisplayName(staffCode)});
       e.selected=false;delete e._selCtx;
@@ -2241,6 +2255,7 @@ function confirmAdvBatchReceived(batchId,m){
   pending.forEach(e=>{
     e.advPaid=true;e.advPaidDate=today;e.advConfirmedBy=currentUser?currentUser.name:'';
     e.advReimburseStatus='confirmed';
+    e._forceLocalSync=true; // v20: Đảm bảo sync lên GSheet — không bị merge ghi đè
     e.paymentHistory=(e.paymentHistory||[]);
     e.paymentHistory.push({action:'adv_reimburse_confirmed',by:currentUser?currentUser.name:'',date:today,note:'Xác nhận nhận tiền hoàn trả Đợt #'+batchId});
   });
@@ -3805,6 +3820,36 @@ function saveData(actionType,detail){
 // Helper: saveData với action log
 function saveLog(action,detail){_lastSyncAction=action;_lastSyncDetail=detail||'';saveData();}
 
+// v20: Dedup cashBatches — loại bỏ batch trùng lặp (cùng type + cùng itemIds)
+function deduplicateCashBatches(){
+  if(!cashBatches||!cashBatches.length)return;
+  var seen=new Map(); // key = type+sorted_itemIds → first batch
+  var toRemove=[];
+  cashBatches.forEach(function(b,idx){
+    var key=b.type+'|'+b.itemIds.slice().sort(function(a,c){return a-c;}).join(',');
+    if(seen.has(key)){
+      // Giữ batch có status 'confirmed' hoặc batch cũ hơn (id nhỏ hơn)
+      var existing=seen.get(key);
+      if(b.status==='confirmed'&&existing.status!=='confirmed'){
+        // batch mới confirmed → giữ batch mới, xóa cũ
+        toRemove.push(cashBatches.indexOf(existing));
+        seen.set(key,b);
+      }else{
+        // Giữ batch cũ, xóa batch trùng
+        toRemove.push(idx);
+      }
+    }else{
+      seen.set(key,b);
+    }
+  });
+  if(toRemove.length){
+    // Xóa từ cuối lên để index không bị lệch
+    toRemove.sort(function(a,c){return c-a;});
+    toRemove.forEach(function(idx){if(idx>=0)cashBatches.splice(idx,1);});
+    console.log('[DEDUP] Removed '+toRemove.length+' duplicate cashBatches');
+  }
+}
+
 // v14: Rebuild cashBatches từ items khi Sheets không trả về cashBatches
 // Items sync bình thường qua Sheets, mỗi item có advBatchId/cashBatchId
 // → dùng thông tin này để tái tạo lại bảng cashBatches
@@ -3878,6 +3923,7 @@ function loadLocalData(){
     if(raw){
       const d=JSON.parse(raw);
       items=d.items||[];budgets=d.budgets||{};nextId=d.nextId||1;advances=d.advances||[];advNextId=d.advNextId||1;cashBatches=d.cashBatches||[];cashBatchNextId=d.cashBatchNextId||1;
+      deduplicateCashBatches(); // v20: Loại bỏ batch trùng lặp khi load local
       if(typeof PRELOAD!=='undefined'&&PRELOAD.length){
         const existIds=new Set(items.map(e=>e.id));
         PRELOAD.forEach(p=>{if(!existIds.has(p.id)){items.push(JSON.parse(JSON.stringify(p)));}});
@@ -3978,8 +4024,32 @@ function mergeItems(localItems, remoteItems, preferLocal){
       }
       // Cùng status + pull mode → giữ remote (Sheets = truth)
       // Remote status cao hơn → giữ remote
-      // v18: Bảo toàn trạng thái chọn từ local sang winner
+      // v19: Bảo toàn batch/annotation fields từ local khi remote thắng
+      // Lý do: advBatchId, advReimburseStatus, contentChanged... là local-only updates
+      // chưa kịp sync lên Sheets. Nếu remote thắng (pull mode), mất hết local annotations.
       const winner=resultMap.get(le.id);
+      if(winner!==le){
+        // Carry over local-only fields mà remote chưa có
+        ['advBatchId','advReimburseStatus','advPaid','advPaidDate','advConfirmedBy','cashBatchId','cashDisbursedDate','cashDisbursedBy','cashConfirmedBy','contentChanged','changeHistory','_forceLocalSync'].forEach(function(k){
+          if(le[k]!==undefined&&le[k]!==null&&le[k]!==''){
+            if(winner[k]===undefined||winner[k]===null||winner[k]===''){
+              winner[k]=le[k];
+            }
+          }
+        });
+        // Merge paymentHistory: thêm entries local mà remote chưa có
+        if(le.paymentHistory&&le.paymentHistory.length){
+          if(!winner.paymentHistory)winner.paymentHistory=[];
+          var winLen=winner.paymentHistory.length;
+          if(le.paymentHistory.length>winLen){
+            // Local có thêm entries mới → append
+            for(var phi=winLen;phi<le.paymentHistory.length;phi++){
+              winner.paymentHistory.push(le.paymentHistory[phi]);
+            }
+          }
+        }
+      }
+      // v18: Bảo toàn trạng thái chọn từ local sang winner
       if(le.selected&&winner!==le){winner.selected=le.selected;winner._selCtx=le._selCtx;}
       // v18: Merge attachments — nhưng BỎ QUA attachment đã bị xóa
       const loser=(winner===le)?re:le;
@@ -4146,6 +4216,7 @@ async function syncToSheets(data){
     // v14: Rebuild cashBatches từ merged items nếu trống
     items=mergedItems; // set items trước để rebuildCashBatchesFromItems dùng được
     ensureCashBatches();
+    deduplicateCashBatches(); // v20: Loại bỏ batch trùng lặp
 
     // Bước 4: Cập nhật local data với merged result
     items=mergedItems;
@@ -4350,6 +4421,7 @@ async function loadFromSheets(){
       }
       // v14: Fallback — rebuild cashBatches từ items nếu Sheets không trả về
       ensureCashBatches();
+      deduplicateCashBatches(); // v20: Loại bỏ batch trùng lặp
 
       // v9: Auto-fix method/status mismatch sau merge
       let loadFixCount=0;

@@ -1,7 +1,7 @@
-// Service Worker v19 — Fix batch selection bug + PT toggle + PDF attachments
+// Service Worker v20 — Fix hoàn trả NV: merge preserve + duplicate prevention + batch dedup
 // File này chạy ở tầng TRƯỚC index.html, kiểm soát mọi request
 
-var CACHE_VERSION = 'loho-v19';
+var CACHE_VERSION = 'loho-v20';
 var VERSION_URL = 'version.json';
 var CRITICAL_FILES = ['index.html', 'app.js', 'version.json', 'sw.js'];
 var CHECK_INTERVAL = 60 * 1000; // Kiểm tra mỗi 60 giây
